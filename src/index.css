@@ -8,9 +8,9 @@
 
 @layer base {
   :root {
-    /* Surfaces */
-    --background: 220 13% 9%;
-    --foreground: 220 15% 92%;
+    /* Surfaces — pure black */
+    --background: 0 0% 0%;
+    --foreground: 0 0% 98%;
 
     --panel: 220 13% 12%;
     --panel-elevated: 220 13% 15%;
