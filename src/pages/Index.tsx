@@ -31,24 +31,24 @@ const Index = () => {
         </Button>
       </header>
 
-      <main className="relative z-10 max-w-6xl mx-auto px-8 pt-24 pb-32 text-center">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-border bg-panel/60 text-xs text-muted-foreground mb-8">
+      <main className="relative z-10 max-w-6xl mx-auto px-8 pt-28 pb-32 text-center">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-border bg-panel/60 text-[11px] uppercase tracking-[0.18em] font-medium text-muted-foreground mb-10">
           <span className="size-1.5 rounded-full bg-success animate-pulse" />
           Powered by Lovable AI · Gemini 3 Flash
         </div>
-        <h1 className="text-6xl md:text-7xl font-extrabold tracking-tight leading-[1.05] mb-6">
+        <h1 className="text-6xl md:text-8xl font-extrabold tracking-[-0.04em] leading-[0.95] mb-8 text-foreground">
           Motion video editing,<br />
           <span className="text-gradient">driven by AI.</span>
         </h1>
-        <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
+        <p className="text-lg md:text-xl text-muted-foreground/90 max-w-2xl mx-auto mb-12 leading-relaxed font-normal">
           Upload a clip, chat with the AI, and watch it cut silences, add lower-thirds,
           generate motion scenes and animated captions — in real time.
         </p>
-        <div className="flex items-center justify-center gap-3 mb-20">
-          <Button size="lg" onClick={goApp} className="bg-gradient-primary hover:opacity-90 shadow-elegant h-12 px-7 text-base">
+        <div className="flex items-center justify-center gap-3 mb-24">
+          <Button size="lg" onClick={goApp} className="bg-gradient-primary hover:opacity-90 shadow-elegant h-12 px-7 text-base font-semibold tracking-tight">
             Start editing free <ArrowRight className="size-4" />
           </Button>
-          <Button size="lg" variant="outline" className="h-12 px-7 text-base" onClick={() => window.scrollTo({ top: 800, behavior: "smooth" })}>
+          <Button size="lg" variant="outline" className="h-12 px-7 text-base font-semibold tracking-tight" onClick={() => window.scrollTo({ top: 800, behavior: "smooth" })}>
             See features
           </Button>
         </div>
@@ -60,12 +60,12 @@ const Index = () => {
             { icon: Type, t: "Animated Captions", d: "Lower-thirds, callouts and subtitles styled to match your brand." },
             { icon: Film, t: "Pro Timeline", d: "Multi-track editor with keyboard shortcuts you already know." },
           ].map((f) => (
-            <div key={f.t} className="rounded-xl border border-border bg-panel/50 backdrop-blur p-5 hover:border-primary/40 transition-colors">
-              <div className="size-9 rounded-md bg-primary/10 grid place-items-center mb-3">
+            <div key={f.t} className="rounded-xl border border-border bg-panel/50 backdrop-blur p-6 hover:border-primary/40 transition-colors">
+              <div className="size-9 rounded-md bg-primary/10 grid place-items-center mb-4">
                 <f.icon className="size-4 text-primary" />
               </div>
-              <h3 className="font-semibold mb-1">{f.t}</h3>
-              <p className="text-sm text-muted-foreground">{f.d}</p>
+              <h3 className="font-semibold text-base tracking-tight mb-1.5">{f.t}</h3>
+              <p className="text-sm text-muted-foreground/80 leading-relaxed">{f.d}</p>
             </div>
           ))}
         </div>
