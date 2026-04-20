@@ -47,6 +47,20 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        panel: {
+          DEFAULT: "hsl(var(--panel))",
+          elevated: "hsl(var(--panel-elevated))",
+          foreground: "hsl(var(--panel-foreground))",
+        },
+        success: "hsl(var(--success))",
+        warning: "hsl(var(--warning))",
+        track: {
+          video: "hsl(var(--track-video))",
+          overlay: "hsl(var(--track-overlay))",
+          text: "hsl(var(--track-text))",
+          audio: "hsl(var(--track-audio))",
+          captions: "hsl(var(--track-captions))",
+        },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",
