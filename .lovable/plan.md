@@ -1,64 +1,72 @@
 
 
-# Conectar Claude (Anthropic) como inteligência do editor
+# Deixar tudo funcionando — correções finais para o editor
 
-Você quer trocar a IA atual (Lovable AI / Gemini) por Claude da Anthropic, usando sua própria chave de API. Antes de você me mandar a chave, vou organizar como isso vai ser configurado para ela ser usada de forma segura.
+Vou consertar o preview que sumiu, o play/pause travado, as ações da IA que recarregam tudo, a duração fixa de 30s, a sobreposição de clipes e o glow remanescente. Resultado: editor 100% utilizável.
 
-## Como vai funcionar
+## Bugs que vou corrigir
 
-```text
-┌─────────────┐    chama     ┌──────────────────┐   chama   ┌──────────────┐
-│  AiChat.tsx │ ───────────▶ │ edge: chat-edit  │ ────────▶ │  Anthropic   │
-│  (browser)  │              │  (servidor)      │           │  Claude API  │
-└─────────────┘              └──────────────────┘           └──────────────┘
-                                       │
-                                Lê ANTHROPIC_API_KEY
-                                de Lovable Cloud (secret)
-```
+1. **Preview sumiu da tela** — falta `min-h-0` no flex do meio e altura mínima no monitor; a timeline está "comendo" a viewport.
+2. **Espaço duplicado** — `Editor.tsx` e `PreviewPlayer.tsx` registram o mesmo listener, cancelando o efeito.
+3. **`isPlaying` não controla o vídeo** — estado existe mas nada chama `video.play()/pause()` quando muda.
+4. **IA recarrega tudo** — `applyAiAction` faz INSERT + `loadProject()` full refetch (perde undo, pisca tela).
+5. **Upload com duração fixa de 10s** — não respeita duração real do vídeo.
+6. **Timeline travada em 30s** — `duration || 30` corta vídeos longos.
+7. **Sem feedback visual da IA** — clipe novo aparece sem destaque/scroll.
+8. **Sobreposição livre** — drag/trim deixa clipes empilharem na mesma track.
+9. **Glow remanescente** — `shadow-elegant` ainda no logo, Export, avatar do chat e dot de asset ativo.
 
-A chave **nunca** vai para o navegador. Fica guardada como secret no backend e só a edge function consegue ler.
+## Plano de correções
 
-## O que vai mudar
+### A) Layout do preview
+- `Editor.tsx`: `min-w-0 min-h-0` no container central.
+- `PreviewPlayer.tsx`: `min-h-[280px]` no monitor + `min-h-0` no `flex-1`.
+- Fallback "No video" sempre visível mesmo sem asset.
 
-### 1) Armazenar a chave de forma segura
-- Vou pedir a chave via prompt seguro de secret (`ANTHROPIC_API_KEY`).
-- Você cola a chave no campo seguro — ela não fica em código, não fica em log, e não é visível no projeto depois.
-- Não me envie a chave por mensagem no chat — quando eu apresentar o prompt de secret, cole lá.
+### B) Play/pause real
+- Remover keydown duplicado de Espaço em `PreviewPlayer.tsx`.
+- `useEffect` em `PreviewPlayer` reagindo a `isPlaying` → chama `video.play()` ou `video.pause()`.
+- Pausar antes de seek manual no playhead.
 
-### 2) Reescrever a edge function `supabase/functions/chat-edit/index.ts`
-- Trocar a chamada do Lovable AI Gateway pela API oficial da Anthropic (`https://api.anthropic.com/v1/messages`).
-- Usar header `x-api-key: ANTHROPIC_API_KEY` e `anthropic-version: 2023-06-01`.
-- Adaptar o formato de mensagens (Anthropic separa `system` em campo próprio, não na lista de messages).
-- Adaptar o formato de **tools** (Anthropic usa `input_schema` em vez de `parameters`, e `tool_use` blocks no streaming em vez de `tool_calls`).
-- Manter streaming via SSE (Anthropic suporta `stream: true` nativamente).
-- Manter as mesmas tools que já existem: `add_text_overlay`, `add_lower_third`, `add_captions`, `cut_silence`, `add_transition`, `generate_motion_scene`.
+### C) Ações da IA via histórico
+- Reescrever `applyAiAction` em `Editor.tsx`: monta novo array em memória → `handleCommit(next)`.
+- IA passa a fazer parte do undo/redo, sem flash, sem perda de seleção.
 
-### 3) Adaptar o parser do streaming no `AiChat.tsx`
-- Anthropic envia eventos diferentes do OpenAI/Gemini:
-  - `content_block_start` → início de texto ou tool
-  - `content_block_delta` → tokens parciais
-  - `content_block_stop` → fim do bloco
-  - `message_stop` → fim total
-- Vou ajustar o parser para extrair tokens e tool calls nesse formato e disparar as ações na timeline igual antes (sem mudar a UI).
+### D) Upload inteligente
+- Após upload de vídeo: criar `<video>` temporário → aguardar `loadedmetadata` → ler duração real.
+- Inserir clipe com `end_time = duração real`.
+- Se primeiro vídeo do projeto, atualizar `projects.duration` no banco.
 
-### 4) Escolha do modelo
-Vou usar **`claude-sonnet-4-5`** como padrão (melhor custo-benefício para chat com tool calling agora). Se quiser outro (ex: `claude-opus-4-5` para tarefas mais complexas), me avisa antes de aprovar.
+### E) Duração dinâmica
+- Carregar `project.duration` no `loadProject`.
+- Timeline usa `Math.max(project.duration, últimoClipeEnd, 30)`.
+- Trim/move que estende além do limite atualiza `projects.duration` (debounced).
 
-### 5) Tratamento de erros
-- 401 (chave inválida) → mensagem clara: "Chave Anthropic inválida, verifique em Settings".
-- 429 (rate limit) → toast amigável.
-- 529 (overloaded) → retry sugerido.
+### F) Feedback visual da IA
+- Após aplicar ação que cria clipe: `setSelectedClipId(novoId)` + scroll horizontal na timeline até ele.
+- Toast discreto via sonner: `toast("AI added: lower-third")`.
 
-## O que NÃO muda
-- A UI do chat fica idêntica (badge "Gemini 3 Flash" será trocado para "Claude Sonnet 4.5").
-- As tools e suas ações na timeline (Phase 1 do CapCut) continuam funcionando do mesmo jeito.
-- Lovable AI continua disponível no projeto, só não é mais usado pelo chat.
+### G) Anti-sobreposição
+- No `onMove` do drag em `Timeline.tsx`: detectar colisão com outros clipes da track destino.
+- Se colidir: borda vermelha temporária no clipe arrastado.
+- No `onUp`: se ainda colidir, reverter para posição original.
+
+### H) Limpar glow
+- `Editor.tsx`: remover `shadow-elegant` da logo Sparkles e botão Export.
+- `AiChat.tsx`: remover `shadow-elegant` do avatar AI Director e botão Send.
+- `EditorSidebar.tsx`: remover `shadow-[0_0_8px_hsl(var(--primary))]` do dot de asset ativo.
 
 ## Arquivos afetados
-- `supabase/functions/chat-edit/index.ts` — reescrita para usar Claude.
-- `src/components/editor/AiChat.tsx` — parser SSE adaptado e badge atualizado.
-- Novo secret `ANTHROPIC_API_KEY` no Lovable Cloud.
+- `src/pages/Editor.tsx` — layout, `applyAiAction` reescrito, upload inteligente, duração dinâmica, sem glow.
+- `src/components/editor/PreviewPlayer.tsx` — min-heights, sync `isPlaying`↔vídeo, remover keydown duplicado.
+- `src/components/editor/Timeline.tsx` — anti-sobreposição no drag/trim.
+- `src/components/editor/AiChat.tsx` — remover `shadow-elegant`.
+- `src/components/editor/EditorSidebar.tsx` — remover glow do dot.
 
-## Próximo passo
-Aprovando este plano, no início da execução eu vou abrir o prompt de secret pedindo `ANTHROPIC_API_KEY`. Você cola a chave lá (não no chat), eu termino a implementação e a gente testa.
+## O que NÃO entra agora
+- Render MP4 real (Fase 9).
+- Inspector de clipe (Fase 2).
+- Captions automáticas por IA (Fase 6).
+
+Após isso: você upa um vídeo, vê o player no centro, arrasta sem sobrepor, dá Espaço e toca, fala com Claude e ele edita ao vivo.
 
