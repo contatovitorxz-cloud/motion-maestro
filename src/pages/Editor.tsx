@@ -56,6 +56,40 @@ const Editor = () => {
     setSelectedVoiceId(id);
     try { localStorage.setItem("motiona:lastVoice", id); } catch {}
   }, []);
+
+  // ===== Pinned image references =====
+  const PIN_KEY = `motiona:pinned:${projectId || "none"}`;
+  const PIN_LIMIT = 4;
+  const [pinnedAssetIds, setPinnedAssetIds] = useState<string[]>([]);
+  useEffect(() => {
+    if (!projectId) return;
+    try {
+      const raw = localStorage.getItem(PIN_KEY);
+      setPinnedAssetIds(raw ? JSON.parse(raw) : []);
+    } catch { setPinnedAssetIds([]); }
+  }, [projectId, PIN_KEY]);
+  const persistPins = (ids: string[]) => {
+    setPinnedAssetIds(ids);
+    try { localStorage.setItem(PIN_KEY, JSON.stringify(ids)); } catch {}
+  };
+  const handleTogglePin = useCallback((assetId: string) => {
+    setPinnedAssetIds(prev => {
+      if (prev.includes(assetId)) {
+        const next = prev.filter(i => i !== assetId);
+        try { localStorage.setItem(PIN_KEY, JSON.stringify(next)); } catch {}
+        return next;
+      }
+      if (prev.length >= PIN_LIMIT) {
+        toast.error(`Máximo ${PIN_LIMIT} referências fixadas`);
+        return prev;
+      }
+      const next = [...prev, assetId];
+      try { localStorage.setItem(PIN_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [PIN_KEY]);
+  const pinnedAssets = assets.filter(a => pinnedAssetIds.includes(a.id) && a.type === "image");
+
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -491,6 +525,8 @@ const Editor = () => {
           onApplyAction={applyAiAction}
           selectedVoiceId={selectedVoiceId}
           onSelectVoice={handleSelectVoice}
+          pinnedAssets={pinnedAssets}
+          onTogglePin={handleTogglePin}
         />
 
         <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-background relative">
@@ -559,6 +595,8 @@ const Editor = () => {
           onUpload={handleUpload}
           onSelectAsset={setActiveAsset}
           activeAssetId={activeAsset?.id}
+          pinnedAssetIds={pinnedAssetIds}
+          onTogglePin={handleTogglePin}
         />
       </div>
     </div>
