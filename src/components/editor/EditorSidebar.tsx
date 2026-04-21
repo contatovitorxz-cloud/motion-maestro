@@ -112,7 +112,7 @@ const EditorSidebar = ({ assets, onUpload, onSelectAsset, activeAssetId, pinnedA
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); onTogglePin!(a.id); }}
-                        title={isPinned ? "Desafixar referência" : "Fixar como referência para a AI"}
+                        title={isPinned ? "Desafixar — AI deixa de usar" : "📌 Fixar pra AI usar na motion (logo, paleta, mood)"}
                         className={cn(
                           "absolute top-1 right-1 size-6 rounded-md grid place-items-center transition-cinema backdrop-blur-md border",
                           isPinned
