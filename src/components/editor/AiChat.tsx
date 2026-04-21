@@ -278,16 +278,22 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, 
           <div className="py-6 animate-fade-in">
             <div className="text-center mb-6">
               <div className="size-14 mx-auto mb-3 rounded-2xl bg-gradient-primary grid place-items-center">
-                <Wand2 className="size-6 text-primary-foreground" />
+                {autoMode ? <Zap className="size-6 text-primary-foreground" /> : <Wand2 className="size-6 text-primary-foreground" />}
               </div>
-              <h3 className="font-bold text-base tracking-tight mb-1">Edit with words.</h3>
+              <h3 className="font-bold text-base tracking-tight mb-1">
+                {autoMode ? "Digite — vídeo pronto." : "Edit with words."}
+              </h3>
               <p className="text-xs text-muted-foreground max-w-[260px] mx-auto leading-relaxed">
-                Tell the AI what you want — it directs the video for you.
+                {autoMode
+                  ? "Cada mensagem vira motion + narração + legenda na timeline."
+                  : "Tell the AI what you want — it directs the video for you."}
               </p>
             </div>
             <div className="space-y-2">
-              <div className="label-pro mb-2 px-1">Quick prompts</div>
-              {SUGGESTIONS.map((s) => (
+              <div className="label-pro mb-2 px-1">
+                {autoMode ? "Tente um tema" : "Quick prompts"}
+              </div>
+              {(autoMode ? AUTO_SUGGESTIONS : SUGGESTIONS).map((s) => (
                 <button
                   key={s.text}
                   onClick={() => send(s.text)}
