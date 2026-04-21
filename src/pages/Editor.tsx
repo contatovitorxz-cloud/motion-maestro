@@ -2,19 +2,19 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Sparkles, ChevronLeft, Download, Loader2 } from "lucide-react";
 import { RotatingBorderButton } from "@/components/RotatingBorderButton";
 import EditorSidebar from "@/components/editor/EditorSidebar";
-import PreviewPlayer from "@/components/editor/PreviewPlayer";
+import PreviewPlayer, { type PreviewPlayerHandle } from "@/components/editor/PreviewPlayer";
 import Timeline from "@/components/editor/Timeline";
 import AiChat from "@/components/editor/AiChat";
 import EmptyProjectHero from "@/components/editor/EmptyProjectHero";
 import AudioInspector from "@/components/editor/AudioInspector";
 import { DEFAULT_VOICE_ID } from "@/components/editor/voices";
 import { useTimelineHistory } from "@/hooks/useTimelineHistory";
+import { exportPlayerToWebm, downloadBlob } from "@/lib/exportVideo";
 
 export interface Asset {
   id: string;
@@ -51,8 +51,8 @@ const Editor = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [exporting, setExporting] = useState(false);
-  const [latestRenderUrl, setLatestRenderUrl] = useState<string | null>(null);
-  const [renderingJobId, setRenderingJobId] = useState<string | null>(null);
+  const [exportProgress, setExportProgress] = useState(0);
+  const previewPlayerRef = useRef<PreviewPlayerHandle>(null);
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>(() => {
     if (typeof window === "undefined") return DEFAULT_VOICE_ID;
     return localStorage.getItem("motiona:lastVoice") || DEFAULT_VOICE_ID;
@@ -329,97 +329,46 @@ const Editor = () => {
     if (projectId) await supabase.from("projects").update({ name }).eq("id", projectId);
   };
 
-  // Trigger MP4 render via remote Remotion worker
-  const triggerRender = useCallback(async (sceneJson: any, narrationAssetId: string | null) => {
-    if (!user || !projectId) return;
-    try {
-      const { data, error } = await supabase.functions.invoke("enqueue-render", {
-        body: {
-          projectId,
-          scene: sceneJson,
-          narrationAssetId,
-          pinnedAssetIds,
-        },
-      });
-      if (error) throw error;
-      if (data?.jobId) {
-        setRenderingJobId(data.jobId);
-        toast.loading("🎥 Renderizando MP4…", { id: `render-${data.jobId}`, duration: Infinity });
-      }
-    } catch (e: any) {
-      const msg = e?.message || "Falha ao enfileirar render";
-      if (msg.includes("Worker não configurado") || msg.includes("REMOTION_WORKER_URL")) {
-        toast.error("Worker do Remotion ainda não configurado — veja worker/README.md");
-      } else {
-        toast.error(msg);
-      }
-    }
-  }, [user, projectId, pinnedAssetIds]);
-
-  // Realtime: listen for render_job updates on this project
-  useEffect(() => {
-    if (!user || !projectId) return;
-    const channel = supabase
-      .channel(`render-jobs-${projectId}`)
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "render_jobs", filter: `project_id=eq.${projectId}` },
-        (payload) => {
-          const row = payload.new as any;
-          if (row.status === "done" && row.output_url) {
-            setLatestRenderUrl(row.output_url);
-            setRenderingJobId(null);
-            toast.success("✅ MP4 pronto", {
-              id: `render-${row.id}`,
-              duration: 8000,
-              action: {
-                label: "Baixar",
-                onClick: () => window.open(row.output_url, "_blank"),
-              },
-            });
-          } else if (row.status === "error") {
-            setRenderingJobId(null);
-            toast.error(`Render falhou: ${row.error || "erro desconhecido"}`, { id: `render-${row.id}` });
-          } else if (row.status === "rendering" && row.progress) {
-            toast.loading(`🎥 Renderizando MP4… ${Math.round(row.progress)}%`, {
-              id: `render-${row.id}`,
-              duration: Infinity,
-            });
-          }
-        }
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [user, projectId]);
-
-  // Load latest done render on mount
-  useEffect(() => {
-    if (!projectId) return;
-    supabase
-      .from("render_jobs")
-      .select("output_url")
-      .eq("project_id", projectId)
-      .eq("status", "done")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => { if (data?.output_url) setLatestRenderUrl(data.output_url); });
-  }, [projectId]);
-
+  // Browser-side MP4 export — captures the Remotion <Player> in real time
+  // via canvas + MediaRecorder. No worker, no server.
   const handleExport = async () => {
-    if (latestRenderUrl) {
-      window.open(latestRenderUrl, "_blank");
+    const motionClip = [...clips]
+      .reverse()
+      .find((c) => c.effects?.kind === "motion_scene" && c.effects?.scene);
+    if (!motionClip) {
+      toast.info("Gere uma motion no chat primeiro — o vídeo sai daqui.");
       return;
     }
-    // Try to render the last motion clip on the timeline
-    const motionClip = [...clips].reverse().find(c => c.effects?.kind === "motion_scene" && c.effects?.scene);
-    if (!motionClip) {
-      toast.info("Gere uma motion no chat primeiro — o MP4 sai automaticamente.");
+    const handle = previewPlayerRef.current?.getRemotionHandle();
+    const player = handle?.player;
+    const container = handle?.getContainer();
+    if (!player || !container) {
+      toast.error("Player não está pronto — recarregue e tente de novo.");
       return;
     }
     setExporting(true);
-    await triggerRender(motionClip.effects.scene, null);
-    setExporting(false);
+    setExportProgress(0);
+    const tId = toast.loading("🎥 Gravando 0%…");
+    try {
+      const durationMs = motionClip.effects.scene.durationMs || 5000;
+      const blob = await exportPlayerToWebm(
+        player,
+        container,
+        durationMs,
+        30,
+        (pct) => {
+          setExportProgress(pct);
+          toast.loading(`🎥 Gravando ${Math.round(pct * 100)}%…`, { id: tId });
+        }
+      );
+      downloadBlob(blob, `${projectName.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "motion"}.webm`);
+      toast.success("✅ Vídeo baixado (.webm)", { id: tId, duration: 6000 });
+    } catch (e: any) {
+      toast.error(e?.message || "Falha ao exportar", { id: tId });
+    } finally {
+      setExporting(false);
+      setExportProgress(0);
+    }
   };
 
 
