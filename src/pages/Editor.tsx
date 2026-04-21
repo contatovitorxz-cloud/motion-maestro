@@ -540,6 +540,16 @@ const Editor = () => {
             setDuration(newTotal);
             await supabase.from("projects").update({ duration: newTotal }).eq("id", projectId);
           }
+          // If a motion scene was generated in the same AI turn, kick off a real MP4 render.
+          const motionWithScene = next.find(c => c.effects?.kind === "motion_scene" && c.effects?.scene);
+          if (motionWithScene) {
+            // Update the scene durationMs to match narration so MP4 length matches voice
+            const stretchedScene = {
+              ...motionWithScene.effects.scene,
+              durationMs: Math.round(dur * 1000),
+            };
+            triggerRender(stretchedScene, data.assetId);
+          }
         } catch (e: any) {
           toast.error(e.message || "Narration failed", { id: tId });
         }
