@@ -37,12 +37,40 @@ const SUGGESTIONS = [
 
 const VOICE_STORAGE_KEY = "motiona:lastVoice";
 
-const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction }: Props) => {
+const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, selectedVoiceId, onSelectVoice }: Props) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const previewCacheRef = useRef<Map<string, string>>(new Map());
   const scrollRef = useRef<HTMLDivElement>(null);
+  const selectedVoice = getVoice(selectedVoiceId);
+
+  const playPreview = async () => {
+    if (previewing) return;
+    setPreviewing(true);
+    try {
+      const cached = previewCacheRef.current.get(selectedVoiceId);
+      let url = cached;
+      if (!url) {
+        const { data, error } = await supabase.functions.invoke("generate-narration", {
+          body: { text: "Olá! Esta é minha voz para a sua narração.", voiceId: selectedVoiceId, projectId },
+        });
+        if (error) throw error;
+        url = data?.signedUrl;
+        if (url) previewCacheRef.current.set(selectedVoiceId, url);
+      }
+      if (!url) throw new Error("No preview url");
+      const audio = new Audio(url);
+      audio.volume = 0.9;
+      await audio.play();
+      audio.onended = () => setPreviewing(false);
+    } catch (e: any) {
+      toast.error(e.message || "Preview failed");
+      setPreviewing(false);
+    }
+  };
 
   useEffect(() => {
     (async () => {
