@@ -618,6 +618,7 @@ const Editor = () => {
             <>
               <div className="absolute inset-0 bg-gradient-glow pointer-events-none" />
               <PreviewPlayer
+                ref={previewPlayerRef}
                 asset={activeAsset}
                 videoRef={videoRef}
                 onTimeUpdate={setCurrentTime}
