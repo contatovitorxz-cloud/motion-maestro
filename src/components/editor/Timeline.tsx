@@ -56,6 +56,7 @@ const Timeline = ({
   const [hoverX, setHoverX] = useState(0);
   const dragRef = useRef<DragState | null>(null);
   const [snapLine, setSnapLine] = useState<number | null>(null);
+  const [collidingId, setCollidingId] = useState<string | null>(null);
 
   const handleClick = (e: React.MouseEvent) => {
     if (!trackRef.current) return;
@@ -129,41 +130,54 @@ const Timeline = ({
         return { v: best, line: bestRef };
       };
 
-      onLiveUpdate(prev => prev.map(c => {
-        if (c.id !== d.clipId) return c;
-        if (d.mode === "move") {
-          const len = d.originEnd - d.originStart;
-          let ns = d.originStart + dSec;
-          ns = Math.max(0, ns);
-          const { v: snappedStart, line } = snap(ns);
-          ns = snappedStart;
-          let ne = ns + len;
-          if (ne > duration) { ne = duration; ns = ne - len; }
+      const overlaps = (id: string, track: string, start: number, end: number, all: Clip[]) => {
+        return all.some(o => o.id !== id && o.track === track && !(end <= o.start_time || start >= o.end_time));
+      };
 
-          // Track switching by vertical movement
-          let newTrack = d.originTrack;
-          const dy = e.clientY - (d.laneRect.top + 22); // approx middle of original lane
-          const laneHeight = 44;
-          const tIndex = Math.max(0, Math.min(TRACK_KEYS.length - 1, d.originTrackIndex + Math.round(dy / laneHeight)));
-          newTrack = TRACK_KEYS[tIndex];
+      onLiveUpdate(prev => {
+        const updated = prev.map(c => {
+          if (c.id !== d.clipId) return c;
+          if (d.mode === "move") {
+            const len = d.originEnd - d.originStart;
+            let ns = d.originStart + dSec;
+            ns = Math.max(0, ns);
+            const { v: snappedStart, line } = snap(ns);
+            ns = snappedStart;
+            let ne = ns + len;
+            if (ne > duration) { ne = duration; ns = ne - len; }
 
+            // Track switching by vertical movement
+            let newTrack = d.originTrack;
+            const dy = e.clientY - (d.laneRect.top + 22);
+            const laneHeight = 44;
+            const tIndex = Math.max(0, Math.min(TRACK_KEYS.length - 1, d.originTrackIndex + Math.round(dy / laneHeight)));
+            newTrack = TRACK_KEYS[tIndex];
+
+            setSnapLine(line);
+            return { ...c, start_time: ns, end_time: ne, track: newTrack };
+          }
+          if (d.mode === "trim-left") {
+            let ns = d.originStart + dSec;
+            ns = Math.max(0, Math.min(d.originEnd - minLen, ns));
+            const { v, line } = snap(ns);
+            setSnapLine(line);
+            return { ...c, start_time: Math.max(0, Math.min(d.originEnd - minLen, v)) };
+          }
+          // trim-right
+          let ne = d.originEnd + dSec;
+          ne = Math.min(duration, Math.max(d.originStart + minLen, ne));
+          const { v, line } = snap(ne);
           setSnapLine(line);
-          return { ...c, start_time: ns, end_time: ne, track: newTrack };
-        }
-        if (d.mode === "trim-left") {
-          let ns = d.originStart + dSec;
-          ns = Math.max(0, Math.min(d.originEnd - minLen, ns));
-          const { v, line } = snap(ns);
-          setSnapLine(line);
-          return { ...c, start_time: Math.max(0, Math.min(d.originEnd - minLen, v)) };
-        }
-        // trim-right
-        let ne = d.originEnd + dSec;
-        ne = Math.min(duration, Math.max(d.originStart + minLen, ne));
-        const { v, line } = snap(ne);
-        setSnapLine(line);
-        return { ...c, end_time: Math.min(duration, Math.max(d.originStart + minLen, v)) };
-      }));
+          return { ...c, end_time: Math.min(duration, Math.max(d.originStart + minLen, v)) };
+        });
+
+        // Check collision for the dragged clip
+        const moved = updated.find(c => c.id === d.clipId)!;
+        const collides = overlaps(moved.id, moved.track, moved.start_time, moved.end_time, updated);
+        setCollidingId(collides ? moved.id : null);
+
+        return updated;
+      });
     };
 
     const onUp = () => {
@@ -172,9 +186,24 @@ const Timeline = ({
       dragRef.current = null;
       document.body.style.cursor = "";
       setSnapLine(null);
-      // Commit current state
+
+      const overlaps = (id: string, track: string, start: number, end: number, all: Clip[]) => {
+        return all.some(o => o.id !== id && o.track === track && !(end <= o.start_time || start >= o.end_time));
+      };
+
       onLiveUpdate(prev => {
+        const moved = prev.find(c => c.id === d.clipId);
+        if (moved && overlaps(moved.id, moved.track, moved.start_time, moved.end_time, prev)) {
+          // Revert collision
+          const reverted = prev.map(c => c.id === d.clipId
+            ? { ...c, start_time: d.originStart, end_time: d.originEnd, track: d.originTrack }
+            : c);
+          onCommit(reverted);
+          setCollidingId(null);
+          return reverted;
+        }
         onCommit(prev);
+        setCollidingId(null);
         return prev;
       });
     };
