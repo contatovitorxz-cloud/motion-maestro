@@ -48,6 +48,8 @@ const Editor = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [exporting, setExporting] = useState(false);
+  const [latestRenderUrl, setLatestRenderUrl] = useState<string | null>(null);
+  const [renderingJobId, setRenderingJobId] = useState<string | null>(null);
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>(() => {
     if (typeof window === "undefined") return DEFAULT_VOICE_ID;
     return localStorage.getItem("motiona:lastVoice") || DEFAULT_VOICE_ID;
