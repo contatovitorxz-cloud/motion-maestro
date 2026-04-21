@@ -319,7 +319,7 @@ const Timeline = ({
 
                 {/* Snap guide */}
                 {snapLine !== null && (
-                  <div className="absolute top-0 bottom-0 w-px bg-cyan-400 z-20 pointer-events-none" style={{ left: `${(snapLine / duration) * 100}%` }} />
+                  <div className="absolute top-0 bottom-0 w-px bg-accent z-20 pointer-events-none" style={{ left: `${(snapLine / duration) * 100}%` }} />
                 )}
               </div>
             </div>
