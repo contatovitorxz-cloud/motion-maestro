@@ -110,6 +110,9 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction }
       let buffer = "";
       let done = false;
 
+      // Track in-progress Anthropic content blocks by index
+      const blocks: Record<number, { type: "text" | "tool_use"; name?: string; jsonBuf?: string }> = {};
+
       while (!done) {
         const { done: d, value } = await reader.read();
         if (d) break;
@@ -121,20 +124,43 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction }
           if (line.endsWith("\r")) line = line.slice(0, -1);
           if (!line.startsWith("data: ")) continue;
           const json = line.slice(6).trim();
-          if (json === "[DONE]") { done = true; break; }
+          if (!json || json === "[DONE]") { if (json === "[DONE]") done = true; continue; }
           try {
-            const parsed = JSON.parse(json);
-            const delta = parsed.choices?.[0]?.delta;
-            if (delta?.content) upsertAssistant(delta.content);
-            if (delta?.tool_calls) {
-              for (const tc of delta.tool_calls) {
-                if (tc.function?.name && tc.function?.arguments) {
-                  try {
-                    const args = JSON.parse(tc.function.arguments);
-                    addAction({ name: tc.function.name, args });
-                  } catch {}
-                }
+            const evt = JSON.parse(json);
+            // Anthropic SSE events: message_start, content_block_start, content_block_delta,
+            // content_block_stop, message_delta, message_stop, ping, error
+            if (evt.type === "content_block_start") {
+              const idx = evt.index;
+              const cb = evt.content_block;
+              if (cb?.type === "text") {
+                blocks[idx] = { type: "text" };
+              } else if (cb?.type === "tool_use") {
+                blocks[idx] = { type: "tool_use", name: cb.name, jsonBuf: "" };
               }
+            } else if (evt.type === "content_block_delta") {
+              const idx = evt.index;
+              const block = blocks[idx];
+              const delta = evt.delta;
+              if (!block || !delta) continue;
+              if (delta.type === "text_delta" && delta.text) {
+                upsertAssistant(delta.text);
+              } else if (delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
+                block.jsonBuf = (block.jsonBuf || "") + delta.partial_json;
+              }
+            } else if (evt.type === "content_block_stop") {
+              const idx = evt.index;
+              const block = blocks[idx];
+              if (block?.type === "tool_use" && block.name) {
+                let args: any = {};
+                try { args = block.jsonBuf ? JSON.parse(block.jsonBuf) : {}; } catch {}
+                addAction({ name: block.name, args });
+              }
+              delete blocks[idx];
+            } else if (evt.type === "message_stop") {
+              done = true;
+            } else if (evt.type === "error") {
+              toast.error(evt.error?.message || "Stream error");
+              done = true;
             }
           } catch {
             buffer = line + "\n" + buffer;
@@ -273,7 +299,7 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction }
           </div>
         </div>
         <div className="text-center mt-2">
-          <span className="text-[9px] text-muted-foreground/50 font-mono uppercase tracking-widest">Powered by Gemini 3 Flash</span>
+          <span className="text-[9px] text-muted-foreground/50 font-mono uppercase tracking-widest">Powered by Claude Sonnet 4.5</span>
         </div>
       </form>
     </aside>
