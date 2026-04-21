@@ -108,10 +108,10 @@ const Timeline = ({ clips, duration, currentTime, onSeek, assets }: Props) => {
 
           {/* Playhead */}
           <div
-            className="absolute top-0 bottom-0 w-px bg-amber z-20 pointer-events-none shadow-[0_0_8px_hsl(var(--amber))]"
+            className="absolute top-0 bottom-0 w-px bg-amber z-20 pointer-events-none"
             style={{ left: `${(currentTime / duration) * 100}%` }}
           >
-            <div className="absolute -top-1 -left-[5px] size-3 bg-amber rotate-45 shadow-[0_0_12px_hsl(var(--amber))]" />
+            <div className="absolute -top-1 -left-[5px] size-3 bg-amber rotate-45" />
           </div>
         </div>
       </div>
@@ -129,7 +129,7 @@ const Timeline = ({ clips, duration, currentTime, onSeek, assets }: Props) => {
                 <div className="absolute right-0 top-0 bottom-0 divider-v" />
                 <div
                   className="size-1.5 rounded-full shrink-0"
-                  style={{ backgroundColor: track.color, boxShadow: `0 0 6px ${track.color}` }}
+                  style={{ backgroundColor: track.color }}
                 />
                 <track.icon className="size-3 text-muted-foreground" />
                 <span className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">
