@@ -11,6 +11,8 @@ import PreviewPlayer from "@/components/editor/PreviewPlayer";
 import Timeline from "@/components/editor/Timeline";
 import AiChat from "@/components/editor/AiChat";
 import EmptyProjectHero from "@/components/editor/EmptyProjectHero";
+import AudioInspector from "@/components/editor/AudioInspector";
+import { DEFAULT_VOICE_ID } from "@/components/editor/voices";
 import { useTimelineHistory } from "@/hooks/useTimelineHistory";
 
 export interface Asset {
