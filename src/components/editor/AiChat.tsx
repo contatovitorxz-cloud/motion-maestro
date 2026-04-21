@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Sparkles, Loader2, Wand2, CheckCircle2, Scissors, Captions, Type, Zap, Mic, Volume2 } from "lucide-react";
+import { Send, Sparkles, Loader2, Wand2, CheckCircle2, Scissors, Captions, Type, Zap, Mic, Volume2, Rocket, Lightbulb, Megaphone } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
 import type { Asset, Clip } from "@/pages/Editor";
@@ -35,7 +35,14 @@ const SUGGESTIONS = [
   { icon: Zap, text: "Create a motion opening scene", hint: "Hook intro" },
 ];
 
+const AUTO_SUGGESTIONS = [
+  { icon: Rocket, text: "Lançamento de produto", hint: "Cinematic launch" },
+  { icon: Lightbulb, text: "Tutorial rápido de 30s", hint: "Quick how-to" },
+  { icon: Megaphone, text: "Vídeo motivacional", hint: "Hype reel" },
+];
+
 const VOICE_STORAGE_KEY = "motiona:lastVoice";
+const AUTO_STORAGE_KEY = "motiona:autoMode";
 
 const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, selectedVoiceId, onSelectVoice }: Props) => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -43,6 +50,18 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, 
   const [streaming, setStreaming] = useState(false);
   const [focused, setFocused] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  const [autoMode, setAutoMode] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const v = localStorage.getItem(AUTO_STORAGE_KEY);
+    return v === null ? true : v === "1";
+  });
+  const toggleAuto = () => {
+    setAutoMode(v => {
+      const next = !v;
+      try { localStorage.setItem(AUTO_STORAGE_KEY, next ? "1" : "0"); } catch {}
+      return next;
+    });
+  };
   const previewCacheRef = useRef<Map<string, string>>(new Map());
   const scrollRef = useRef<HTMLDivElement>(null);
   const selectedVoice = getVoice(selectedVoiceId);
@@ -127,6 +146,7 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, 
             clips: clips.map(c => ({ track: c.track, start: c.start_time, end: c.end_time, effects: c.effects })),
             currentTime,
             selectedVoice: `${selectedVoice.name} (${selectedVoice.tone}) — id ${selectedVoice.id}`,
+            autoMode,
           },
         }),
       });
@@ -230,10 +250,26 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, 
           </div>
           <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-success ring-2 ring-obsidian animate-pulse-soft" />
         </div>
-        <div className="flex flex-col">
+        <div className="flex flex-col flex-1 min-w-0">
           <span className="text-sm font-semibold tracking-tight">AI Director</span>
           <span className="text-[10px] text-success font-medium">● Online</span>
         </div>
+        <button
+          type="button"
+          onClick={toggleAuto}
+          title={autoMode
+            ? "Auto mode: cada mensagem gera vídeo completo (motion + voz + legenda). Usa créditos ElevenLabs."
+            : "Modo conversa: o AI pergunta e edita pontualmente."}
+          className={cn(
+            "flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-cinema border",
+            autoMode
+              ? "bg-gradient-primary text-primary-foreground border-transparent shadow-[0_0_16px_-4px_hsl(var(--primary)/0.6)]"
+              : "bg-panel-elevated/40 text-muted-foreground border-border-strong/40 hover:text-foreground"
+          )}
+        >
+          <Zap className={cn("size-3", autoMode && "fill-current")} />
+          {autoMode ? "Auto" : "Chat"}
+        </button>
       </div>
 
       {/* Messages */}
@@ -242,16 +278,22 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, 
           <div className="py-6 animate-fade-in">
             <div className="text-center mb-6">
               <div className="size-14 mx-auto mb-3 rounded-2xl bg-gradient-primary grid place-items-center">
-                <Wand2 className="size-6 text-primary-foreground" />
+                {autoMode ? <Zap className="size-6 text-primary-foreground" /> : <Wand2 className="size-6 text-primary-foreground" />}
               </div>
-              <h3 className="font-bold text-base tracking-tight mb-1">Edit with words.</h3>
+              <h3 className="font-bold text-base tracking-tight mb-1">
+                {autoMode ? "Digite — vídeo pronto." : "Edit with words."}
+              </h3>
               <p className="text-xs text-muted-foreground max-w-[260px] mx-auto leading-relaxed">
-                Tell the AI what you want — it directs the video for you.
+                {autoMode
+                  ? "Cada mensagem vira motion + narração + legenda na timeline."
+                  : "Tell the AI what you want — it directs the video for you."}
               </p>
             </div>
             <div className="space-y-2">
-              <div className="label-pro mb-2 px-1">Quick prompts</div>
-              {SUGGESTIONS.map((s) => (
+              <div className="label-pro mb-2 px-1">
+                {autoMode ? "Tente um tema" : "Quick prompts"}
+              </div>
+              {(autoMode ? AUTO_SUGGESTIONS : SUGGESTIONS).map((s) => (
                 <button
                   key={s.text}
                   onClick={() => send(s.text)}
@@ -350,7 +392,7 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, 
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
-            placeholder="Direct the edit…"
+            placeholder={autoMode ? "Diga o tema — eu monto o vídeo…" : "Direct the edit…"}
             className="min-h-[56px] resize-none bg-transparent border-0 text-sm focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/60"
             disabled={streaming}
           />
