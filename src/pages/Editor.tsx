@@ -10,6 +10,7 @@ import EditorSidebar from "@/components/editor/EditorSidebar";
 import PreviewPlayer from "@/components/editor/PreviewPlayer";
 import Timeline from "@/components/editor/Timeline";
 import AiChat from "@/components/editor/AiChat";
+import { useTimelineHistory } from "@/hooks/useTimelineHistory";
 
 export interface Asset {
   id: string;
@@ -36,7 +37,8 @@ const Editor = () => {
   const [projectName, setProjectName] = useState("Untitled Project");
   const [loading, setLoading] = useState(true);
   const [assets, setAssets] = useState<Asset[]>([]);
-  const [clips, setClips] = useState<Clip[]>([]);
+  const { clips, reset: resetClips, commit: commitClips, setLive: setLiveClips, undo, redo } = useTimelineHistory([]);
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [activeAsset, setActiveAsset] = useState<Asset | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -70,12 +72,133 @@ const Editor = () => {
       return { ...a, url: data?.signedUrl };
     }));
     setAssets(enriched);
-    setClips((clipsData as any) || []);
+    resetClips((clipsData as any) || []);
     if (enriched.find(a => a.type === "video")) setActiveAsset(enriched.find(a => a.type === "video")!);
     setLoading(false);
-  }, [projectId, user, navigate]);
+  }, [projectId, user, navigate, resetClips]);
 
   useEffect(() => { loadProject(); }, [loadProject]);
+
+  // ===== Persist clip changes (debounced upsert/delete diff) =====
+  const lastPersistedRef = useRef<Map<string, Clip>>(new Map());
+  useEffect(() => {
+    // After load, snapshot persisted state
+    const map = new Map<string, Clip>();
+    clips.forEach(c => map.set(c.id, c));
+    lastPersistedRef.current = map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
+
+  const persistClips = useCallback(async (next: Clip[]) => {
+    if (!user || !projectId) return;
+    const prevMap = lastPersistedRef.current;
+    const nextMap = new Map<string, Clip>();
+    next.forEach(c => nextMap.set(c.id, c));
+
+    // Deletions
+    const deletions: string[] = [];
+    prevMap.forEach((_, id) => { if (!nextMap.has(id)) deletions.push(id); });
+    if (deletions.length) await supabase.from("timeline_clips").delete().in("id", deletions);
+
+    // Upserts (insert new + update changed)
+    const ups: any[] = [];
+    nextMap.forEach((c, id) => {
+      const p = prevMap.get(id);
+      if (!p || p.start_time !== c.start_time || p.end_time !== c.end_time || p.track !== c.track) {
+        ups.push({
+          id: c.id, project_id: projectId, user_id: user.id,
+          track: c.track, start_time: c.start_time, end_time: c.end_time,
+          asset_id: c.asset_id, effects: c.effects ?? {},
+        });
+      }
+    });
+    if (ups.length) await supabase.from("timeline_clips").upsert(ups);
+
+    lastPersistedRef.current = nextMap;
+  }, [user, projectId]);
+
+  const handleCommit = useCallback((next: Clip[]) => {
+    commitClips(next);
+    persistClips(next);
+  }, [commitClips, persistClips]);
+
+  // ===== Edit ops =====
+  const handleSplit = useCallback(() => {
+    const t = currentTime;
+    const target = clips.find(c => c.start_time < t && c.end_time > t && (selectedClipId ? c.id === selectedClipId : true));
+    if (!target) { toast.info("Position the playhead over a clip to split"); return; }
+    const left: Clip = { ...target, end_time: t };
+    const right: Clip = { ...target, id: crypto.randomUUID(), start_time: t };
+    const next = clips.flatMap(c => c.id === target.id ? [left, right] : [c]);
+    handleCommit(next);
+    setSelectedClipId(right.id);
+    toast.success("Clip split");
+  }, [clips, currentTime, selectedClipId, handleCommit]);
+
+  const handleDelete = useCallback(() => {
+    if (!selectedClipId) return;
+    const next = clips.filter(c => c.id !== selectedClipId);
+    setSelectedClipId(null);
+    handleCommit(next);
+  }, [selectedClipId, clips, handleCommit]);
+
+  const handleUndo = useCallback(() => {
+    const next = undo();
+    if (next) persistClips(next);
+  }, [undo, persistClips]);
+
+  const handleRedo = useCallback(() => {
+    const next = redo();
+    if (next) persistClips(next);
+  }, [redo, persistClips]);
+
+  // ===== Keyboard shortcuts =====
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+
+      const meta = e.metaKey || e.ctrlKey;
+      if (meta && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) handleRedo(); else handleUndo();
+        return;
+      }
+      if (meta && e.key.toLowerCase() === "y") { e.preventDefault(); handleRedo(); return; }
+
+      if (e.key === " ") { e.preventDefault(); setIsPlaying(p => !p); return; }
+      if (e.key.toLowerCase() === "s") { e.preventDefault(); handleSplit(); return; }
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedClipId) { e.preventDefault(); handleDelete(); }
+        return;
+      }
+      if (e.key.toLowerCase() === "j") {
+        const t = Math.max(0, currentTime - 1);
+        setCurrentTime(t); if (videoRef.current) videoRef.current.currentTime = t;
+        return;
+      }
+      if (e.key.toLowerCase() === "k") { setIsPlaying(false); return; }
+      if (e.key.toLowerCase() === "l") {
+        const t = Math.min(duration, currentTime + 1);
+        setCurrentTime(t); if (videoRef.current) videoRef.current.currentTime = t;
+        return;
+      }
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        const step = e.shiftKey ? 1 : 1 / 30;
+        const t = Math.max(0, currentTime - step);
+        setCurrentTime(t); if (videoRef.current) videoRef.current.currentTime = t;
+      }
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        const step = e.shiftKey ? 1 : 1 / 30;
+        const t = Math.min(duration, currentTime + step);
+        setCurrentTime(t); if (videoRef.current) videoRef.current.currentTime = t;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleSplit, handleDelete, handleUndo, handleRedo, selectedClipId, currentTime, duration]);
 
   const handleUpload = async (files: File[]) => {
     if (!user || !projectId) return;
@@ -171,7 +294,6 @@ const Editor = () => {
 
   return (
     <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
-      {/* Topbar */}
       <header className="h-14 shrink-0 relative bg-obsidian/80 backdrop-blur-xl flex items-center justify-between px-4">
         <div className="absolute inset-x-0 bottom-0 divider-h" />
         <div className="flex items-center gap-3 min-w-0">
@@ -189,7 +311,6 @@ const Editor = () => {
           />
         </div>
 
-        {/* Center timecode */}
         <div className="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-3 px-4 py-1.5 rounded-md bg-obsidian border border-border-strong/40">
           <span className="label-pro">TC</span>
           <span className="font-mono text-sm font-semibold text-amber tabular-nums">
@@ -214,7 +335,6 @@ const Editor = () => {
         </div>
       </header>
 
-      {/* 3-column layout: AI Chat (left) | Preview+Timeline (center) | Media (right) */}
       <div className="flex-1 flex min-h-0 relative">
         <AiChat
           projectId={projectId!}
@@ -243,6 +363,14 @@ const Editor = () => {
             currentTime={currentTime}
             onSeek={(t) => { setCurrentTime(t); if (videoRef.current) videoRef.current.currentTime = t; }}
             assets={assets}
+            selectedClipId={selectedClipId}
+            onSelectClip={setSelectedClipId}
+            onLiveUpdate={setLiveClips}
+            onCommit={handleCommit}
+            onSplit={handleSplit}
+            onDelete={handleDelete}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
           />
         </div>
 
