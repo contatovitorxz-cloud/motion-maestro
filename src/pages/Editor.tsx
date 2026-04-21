@@ -295,6 +295,10 @@ const Editor = () => {
     setTimeout(() => setExporting(false), 1500);
   };
 
+  // Track the most recent motion_scene clip id added in the current AI turn,
+  // so when narration arrives we can stretch it to match.
+  const lastMotionClipRef = useRef<{ id: string; start: number } | null>(null);
+
   const applyAiAction = useCallback(async (action: any) => {
     if (!user || !projectId) return;
     const { name, args } = action;
@@ -340,6 +344,7 @@ const Editor = () => {
           asset_id: null,
           effects: { kind: "motion_scene", description: args.description },
         };
+        lastMotionClipRef.current = { id: newClip.id, start };
       } else if (name === "cut_silence") {
         toast.success("Silences marked for removal");
         return;
@@ -365,20 +370,41 @@ const Editor = () => {
           };
           setAssets(prev => [...prev, newAsset]);
 
-          // Place on audio track avoiding overlap
-          const lastEnd = clips.filter(c => c.track === "audio").reduce((m, c) => Math.max(m, c.end_time), 0);
-          const placedStart = Math.max(start, lastEnd);
+          // In Auto mode the motion clip was just added in the same turn —
+          // align the narration to its start and stretch it to match duration.
+          const motionRef = lastMotionClipRef.current;
+          let placedStart = start;
+          let nextClips = clips;
+          if (motionRef) {
+            placedStart = motionRef.start;
+            nextClips = clips.map(c =>
+              c.id === motionRef.id
+                ? { ...c, end_time: motionRef.start + dur }
+                : c
+            );
+            lastMotionClipRef.current = null;
+          } else {
+            const lastEnd = clips.filter(c => c.track === "audio").reduce((m, c) => Math.max(m, c.end_time), 0);
+            placedStart = Math.max(start, lastEnd);
+          }
+
           const audioClip: Clip = {
             id: crypto.randomUUID(), track: "audio",
             start_time: placedStart, end_time: placedStart + dur,
             asset_id: data.assetId,
             effects: { kind: "narration", text, voiceId, volume: 100 },
           };
-          const next = [...clips, audioClip];
+          // Stretch any captions clip from this turn to cover full duration
+          const totalEnd = placedStart + dur;
+          nextClips = nextClips.map(c =>
+            c.track === "captions" && c.start_time === 0
+              ? { ...c, end_time: Math.max(c.end_time, totalEnd) }
+              : c
+          );
+          const next = [...nextClips, audioClip];
           handleCommit(next);
           setSelectedClipId(audioClip.id);
           toast.success("Narration added to audio track", { id: tId });
-          // Bump duration if needed
           const newTotal = Math.max(duration, audioClip.end_time);
           if (newTotal > duration) {
             setDuration(newTotal);
