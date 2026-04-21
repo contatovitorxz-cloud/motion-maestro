@@ -392,7 +392,7 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, 
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
-            placeholder="Direct the edit…"
+            placeholder={autoMode ? "Diga o tema — eu monto o vídeo…" : "Direct the edit…"}
             className="min-h-[56px] resize-none bg-transparent border-0 text-sm focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/60"
             disabled={streaming}
           />
