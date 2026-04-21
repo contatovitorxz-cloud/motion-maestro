@@ -29,7 +29,7 @@ const EditorSidebar = ({ assets, onUpload, onSelectAsset, activeAssetId }: Props
   return (
     <aside
       {...getRootProps()}
-      className="w-72 shrink-0 bg-obsidian flex flex-col min-h-0 relative bg-grain"
+      className="w-72 shrink-0 bg-black flex flex-col min-h-0 relative border-l border-white/[0.06]"
     >
       <input {...getInputProps()} />
 
