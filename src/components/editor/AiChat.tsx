@@ -250,10 +250,26 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, 
           </div>
           <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-success ring-2 ring-obsidian animate-pulse-soft" />
         </div>
-        <div className="flex flex-col">
+        <div className="flex flex-col flex-1 min-w-0">
           <span className="text-sm font-semibold tracking-tight">AI Director</span>
           <span className="text-[10px] text-success font-medium">● Online</span>
         </div>
+        <button
+          type="button"
+          onClick={toggleAuto}
+          title={autoMode
+            ? "Auto mode: cada mensagem gera vídeo completo (motion + voz + legenda). Usa créditos ElevenLabs."
+            : "Modo conversa: o AI pergunta e edita pontualmente."}
+          className={cn(
+            "flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-cinema border",
+            autoMode
+              ? "bg-gradient-primary text-primary-foreground border-transparent shadow-[0_0_16px_-4px_hsl(var(--primary)/0.6)]"
+              : "bg-panel-elevated/40 text-muted-foreground border-border-strong/40 hover:text-foreground"
+          )}
+        >
+          <Zap className={cn("size-3", autoMode && "fill-current")} />
+          {autoMode ? "Auto" : "Chat"}
+        </button>
       </div>
 
       {/* Messages */}
