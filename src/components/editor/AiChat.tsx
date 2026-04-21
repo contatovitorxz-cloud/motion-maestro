@@ -19,6 +19,8 @@ interface Props {
   onApplyAction: (action: { name: string; args: any }) => void;
   selectedVoiceId: string;
   onSelectVoice: (id: string) => void;
+  pinnedAssets?: Asset[];
+  onTogglePin?: (assetId: string) => void;
 }
 
 interface Message {
@@ -44,7 +46,7 @@ const AUTO_SUGGESTIONS = [
 const VOICE_STORAGE_KEY = "motiona:lastVoice";
 const AUTO_STORAGE_KEY = "motiona:autoMode";
 
-const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, selectedVoiceId, onSelectVoice }: Props) => {
+const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, selectedVoiceId, onSelectVoice, pinnedAssets = [], onTogglePin }: Props) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -147,6 +149,11 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, 
             currentTime,
             selectedVoice: `${selectedVoice.name} (${selectedVoice.tone}) — id ${selectedVoice.id}`,
             autoMode,
+            pinnedImages: pinnedAssets.map(a => ({
+              name: a.name,
+              url: a.url,
+              description: a.metadata?.pin_description ?? null,
+            })),
           },
         }),
       });
