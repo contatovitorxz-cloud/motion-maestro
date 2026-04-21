@@ -17,6 +17,8 @@ interface Props {
   clips: Clip[];
   currentTime: number;
   onApplyAction: (action: { name: string; args: any }) => void;
+  selectedVoiceId: string;
+  onSelectVoice: (id: string) => void;
 }
 
 interface Message {
