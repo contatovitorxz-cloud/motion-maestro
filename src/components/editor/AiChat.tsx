@@ -279,6 +279,40 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, 
         </button>
       </div>
 
+      {/* Pinned references bar */}
+      {pinnedAssets.length > 0 && (
+        <div className="shrink-0 relative bg-amber-400/[0.04] border-b border-white/[0.06] px-4 py-2 flex items-center gap-3 animate-fade-in">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Pin className="size-3 text-amber-400 fill-current" />
+            <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-amber-400/80">
+              Refs · {pinnedAssets.length}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 flex-1 overflow-x-auto scrollbar-thin">
+            {pinnedAssets.map(a => (
+              <div key={a.id} className="relative group/pin shrink-0" title={a.name}>
+                <img
+                  src={a.url}
+                  alt={a.name}
+                  className="size-9 rounded-md object-cover border border-amber-400/40"
+                />
+                {onTogglePin && (
+                  <button
+                    type="button"
+                    onClick={() => onTogglePin(a.id)}
+                    title="Desafixar"
+                    className="absolute -top-1 -right-1 size-4 rounded-full bg-black border border-white/20 grid place-items-center opacity-0 group-hover/pin:opacity-100 transition-cinema hover:bg-red-500/80"
+                  >
+                    <X className="size-2.5 text-white" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          <span className="text-[10px] text-white/40 shrink-0 hidden lg:inline">AI usa como guia</span>
+        </div>
+      )}
+
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin px-4 py-4 space-y-4">
         {messages.length === 0 && (

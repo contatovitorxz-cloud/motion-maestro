@@ -95,11 +95,20 @@ serve(async (req) => {
     const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
     if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
 
+    const pinnedImages: Array<{ name: string; url: string; description?: string | null }> =
+      Array.isArray(context?.pinnedImages) ? context.pinnedImages.filter((p: any) => p?.url) : [];
+
+    const pinnedBlock = pinnedImages.length
+      ? `\n\nPINNED VISUAL REFERENCES (${pinnedImages.length} image${pinnedImages.length > 1 ? "s" : ""} the user fixed — you MUST honor them):
+${pinnedImages.map(p => `- ${p.name}${p.description ? ` — ${p.description}` : ""}`).join("\n")}
+Use these as your visual north: match palette, mood, composition, subject. When calling generate_motion_scene, your \`description\` MUST mention how the scene reflects these references (e.g. "inspired by ${pinnedImages[0].name}").`
+      : "";
+
     const ctxBlock = `Current editor context:
 - Assets: ${JSON.stringify(context?.assets || [])}
 - Existing timeline clips: ${JSON.stringify(context?.clips || [])}
 - Playhead is at: ${context?.currentTime ?? 0}s
-- User's selected default voice: ${context?.selectedVoice || "Sarah (clear, conversational)"}`;
+- User's selected default voice: ${context?.selectedVoice || "Sarah (clear, conversational)"}${pinnedBlock}`;
 
     const autoPrompt = `You are Motiona Auto-Director — an AI that turns ANY user message into a complete short video, with ZERO follow-up questions.
 
@@ -109,13 +118,13 @@ CRITICAL RULES (Auto mode):
 1. Treat EVERY user message as a complete creative brief, even if it's just 2 words like "iPhone 17 launch" or "motivational quote".
 2. NEVER ask clarifying questions. NEVER ask for confirmation. Just produce.
 3. For EVERY message you MUST call ALL THREE of these tools in the SAME turn (in parallel):
-   a) \`generate_motion_scene\` — describe a cinematic visual scene matching the topic.
+   a) \`generate_motion_scene\` — describe a cinematic visual scene matching the topic.${pinnedImages.length ? " The description MUST reflect the pinned reference images (palette, subject, composition)." : ""}
    b) \`generate_narration\` — YOU write a 2-4 sentence cinematic script in the SAME LANGUAGE as the user, then pass it as \`text\`. Do not pass \`voice_id\` (the UI handles voice).
    c) \`add_captions\` — style: "kinetic".
 4. Use \`start: 0\` and \`duration: 8\` for the motion_scene by default — the frontend will auto-stretch it to match the narration length.
 5. Reply format (markdown, concise, in the user's language):
    **🎬 Roteiro:** <the script you wrote>
-   **🎨 Cena:** <one-line visual description>
+   **🎨 Cena:** <one-line visual description${pinnedImages.length ? ` — mention "inspirado em: ${pinnedImages.map(p => p.name).join(", ")}"` : ""}>
    **✨ Pronto — confira a timeline.**
 
 Be bold and cinematic. Do NOT explain process. Do NOT ask. Just deliver.`;
@@ -131,7 +140,7 @@ NARRATION RULES:
 - When the user asks for narration, voiceover, or spoken audio along with a motion scene, call BOTH \`generate_motion_scene\` AND \`generate_narration\` in the same turn.
 - If the user did not provide the script text, WRITE a short cinematic script yourself (1-3 sentences), show it in your reply ("Roteiro: …"), then call \`generate_narration\` with that text.
 - Do NOT ask for a voice — the user picks the voice in the UI. Only pass \`voice_id\` if the user explicitly names a voice in their message.
-- Respond in the same language the user wrote in (Portuguese in/Portuguese out, English in/English out).
+- Respond in the same language the user wrote in (Portuguese in/Portuguese out, English in/English out).${pinnedImages.length ? `\n\nPINNED REFERENCES: The user has fixed ${pinnedImages.length} image(s) as visual references. Honor them in any motion scene you generate.` : ""}
 
 If a request is ambiguous, ask one short clarifying question. Otherwise, act.
 Be friendly, concise, and confident — like a senior motion designer.`;
@@ -142,6 +151,28 @@ Be friendly, concise, and confident — like a senior motion designer.`;
     const anthropicMessages = (messages || [])
       .filter((m: any) => m.role === "user" || m.role === "assistant")
       .map((m: any) => ({ role: m.role, content: m.content }));
+
+    // Attach pinned images to the LAST user message as vision blocks so Claude actually sees them
+    if (pinnedImages.length && anthropicMessages.length) {
+      for (let i = anthropicMessages.length - 1; i >= 0; i--) {
+        if (anthropicMessages[i].role === "user") {
+          const originalText = typeof anthropicMessages[i].content === "string"
+            ? anthropicMessages[i].content
+            : "";
+          anthropicMessages[i] = {
+            role: "user",
+            content: [
+              { type: "text", text: originalText },
+              ...pinnedImages.map(img => ({
+                type: "image",
+                source: { type: "url", url: img.url },
+              })),
+            ],
+          };
+          break;
+        }
+      }
+    }
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
