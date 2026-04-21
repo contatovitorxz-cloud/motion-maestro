@@ -1,11 +1,11 @@
-import { RefObject, useEffect, useRef, useState } from "react";
+import { forwardRef, RefObject, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Play, Pause, SkipBack, SkipForward, Maximize2, Volume2, Film, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { Asset, Clip } from "@/pages/Editor";
-import MotionRenderer from "./MotionRenderer";
 import { isMotionScene } from "@/lib/motionScene";
+import RemotionPlayer, { type RemotionPlayerHandle } from "./RemotionPlayer";
 
 interface Props {
   asset: Asset | null;
@@ -19,9 +19,35 @@ interface Props {
   assets: Asset[];
 }
 
-const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlaying, setIsPlaying, currentTime, clips, assets }: Props) => {
+export interface PreviewPlayerHandle {
+  /** Returns the Remotion player handle for the active motion scene (if any). */
+  getRemotionHandle: () => RemotionPlayerHandle | null;
+}
+
+const PreviewPlayer = forwardRef<PreviewPlayerHandle, Props>(({
+  asset, videoRef, onTimeUpdate, onDurationChange, isPlaying, setIsPlaying, currentTime, clips, assets,
+}, ref) => {
   const [volume, setVolume] = useState(100);
   const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const remotionRef = useRef<RemotionPlayerHandle>(null);
+
+  useImperativeHandle(ref, () => ({
+    getRemotionHandle: () => remotionRef.current,
+  }), []);
+
+  // Latest motion_scene clip on the timeline (drives the Remotion preview)
+  const motionClip = useMemo(
+    () =>
+      [...clips]
+        .reverse()
+        .find(
+          (c) =>
+            c.track === "overlay" &&
+            c.effects?.kind === "motion_scene" &&
+            isMotionScene(c.effects?.scene)
+        ),
+    [clips]
+  );
 
   useEffect(() => {
     const v = videoRef.current; if (!v) return;
@@ -48,7 +74,15 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
     }
   }, [isPlaying, videoRef, setIsPlaying, asset]);
 
-  // Fallback playback ticker when there is no <video> element (motion-only)
+  // Sync isPlaying -> Remotion player
+  useEffect(() => {
+    const p = remotionRef.current?.player;
+    if (!p) return;
+    if (isPlaying) p.play();
+    else p.pause();
+  }, [isPlaying, motionClip?.id]);
+
+  // Drive currentTime forward when there is no main video element
   useEffect(() => {
     if (asset?.url) return;
     if (!isPlaying) return;
@@ -74,10 +108,8 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
     currentTime >= c.start_time && currentTime <= c.end_time
   );
 
-  // Audio clips with valid asset url
   const audioClips = clips.filter(c => c.track === "audio" && c.asset_id);
 
-  // Sync each audio element with the playhead
   useEffect(() => {
     audioClips.forEach((clip) => {
       const el = audioRefs.current.get(clip.id);
@@ -88,7 +120,6 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
       el.volume = vol * (volume / 100);
 
       if (inRange) {
-        // Resync if drifted
         if (Math.abs(el.currentTime - localTime) > 0.25) {
           try { el.currentTime = localTime; } catch {}
         }
@@ -100,7 +131,6 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
     });
   }, [currentTime, isPlaying, audioClips, volume]);
 
-  // Pause everything when no longer playing
   useEffect(() => {
     if (!isPlaying) {
       audioRefs.current.forEach((el) => { if (!el.paused) el.pause(); });
@@ -114,9 +144,10 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
     return `${m.toString().padStart(2, "0")}:${sec}:${ms}`;
   };
 
+  const showRemotion = !!motionClip && !asset?.url;
+
   return (
     <div className="flex-1 min-h-0 flex flex-col relative">
-      {/* Hidden audio elements per audio clip */}
       {audioClips.map((c) => {
         const a = assets.find(x => x.id === c.asset_id);
         if (!a?.url) return null;
@@ -134,7 +165,6 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
         );
       })}
 
-      {/* Cinema viewport */}
       <div className="flex-1 min-h-[280px] grid place-items-center p-8 relative">
         <div className="absolute inset-0 bg-gradient-vignette pointer-events-none" />
 
@@ -147,6 +177,13 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
                 className="w-full h-full object-contain bg-black"
                 onClick={togglePlay}
               />
+            ) : showRemotion ? (
+              <RemotionPlayer
+                ref={remotionRef}
+                scene={motionClip!.effects.scene}
+                assets={assets}
+                className="w-full h-full"
+              />
             ) : (
               <div className="w-full h-full grid place-items-center text-muted-foreground bg-obsidian">
                 <div className="text-center">
@@ -154,28 +191,10 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
                     <Film className="size-8 text-primary/60" />
                   </div>
                   <p className="text-sm font-medium">No clip loaded</p>
-                  <p className="text-xs text-muted-foreground/70 mt-1">Upload a video to start directing</p>
+                  <p className="text-xs text-muted-foreground/70 mt-1">Upload a video or describe a motion in the chat</p>
                 </div>
               </div>
             )}
-
-            {/* Motion scene overlay (AI-generated, client-rendered) */}
-            {(() => {
-              const motion = clips.find(c =>
-                c.track === "overlay" &&
-                c.effects?.kind === "motion_scene" &&
-                isMotionScene(c.effects?.scene) &&
-                currentTime >= c.start_time && currentTime <= c.end_time
-              );
-              if (!motion) return null;
-              return (
-                <MotionRenderer
-                  scene={motion.effects.scene}
-                  currentTimeMs={(currentTime - motion.start_time) * 1000}
-                  assets={assets}
-                />
-              );
-            })()}
 
             <div className="absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-black/80 to-transparent pointer-events-none" />
             <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
@@ -195,24 +214,29 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
               ))}
             </div>
 
-            {asset && (
+            {(asset || motionClip) && (
               <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2 py-1 rounded bg-black/60 backdrop-blur-sm border border-white/10">
                 <span className="size-1.5 rounded-full bg-destructive animate-pulse" />
-                <span className="text-[9px] font-mono uppercase tracking-widest text-white/80">PGM</span>
+                <span className="text-[9px] font-mono uppercase tracking-widest text-white/80">
+                  {motionClip && !asset?.url ? "MOTION" : "PGM"}
+                </span>
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Pro Transport Bar */}
       <div className="h-16 shrink-0 relative bg-obsidian/90 backdrop-blur-xl flex items-center px-6 gap-4">
         <div className="absolute inset-x-0 top-0 divider-h" />
 
         <Button
           size="icon"
           variant="ghost"
-          onClick={() => videoRef.current && (videoRef.current.currentTime = 0)}
+          onClick={() => {
+            if (videoRef.current) videoRef.current.currentTime = 0;
+            const p = remotionRef.current?.player;
+            if (p) p.seekTo(0);
+          }}
           className="size-9 hover:bg-panel-elevated text-muted-foreground hover:text-foreground transition-cinema"
         >
           <SkipBack className="size-4" />
@@ -242,7 +266,7 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
             </span>
             <span className="text-muted-foreground/40 text-sm">/</span>
             <span className="font-mono text-xs text-muted-foreground tabular-nums">
-              {fmt(asset && videoRef.current?.duration ? videoRef.current.duration : 0)}
+              {fmt(asset && videoRef.current?.duration ? videoRef.current.duration : (motionClip ? motionClip.effects.scene.durationMs / 1000 : 0))}
             </span>
           </div>
         </div>
@@ -278,6 +302,7 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
       </div>
     </div>
   );
-};
+});
 
+PreviewPlayer.displayName = "PreviewPlayer";
 export default PreviewPlayer;

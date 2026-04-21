@@ -1,17 +1,15 @@
 import React from "react";
 import {
   AbsoluteFill,
-  Audio,
   Img,
   interpolate,
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
-import type { MotionLayer, MotionScene } from "./motionScene";
+import type { MotionLayer, MotionScene } from "@/lib/motionScene";
 
-export interface SceneProps {
+export interface MotionCompositionProps {
   scene: MotionScene;
-  narrationUrl: string | null;
   imageUrls: Record<string, string>;
 }
 
@@ -19,12 +17,16 @@ const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
 const easeInOutCubic = (t: number) =>
   t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
-function bgStyle(scene: MotionScene, imageUrls: Record<string, string>): React.CSSProperties {
+function bgStyle(
+  scene: MotionScene,
+  imageUrls: Record<string, string>
+): React.CSSProperties {
   const bg = scene.background;
   if (bg.type === "solid") return { background: bg.color };
   if (bg.type === "gradient")
-    return { background: `linear-gradient(${bg.angle}deg, ${bg.from}, ${bg.to})` };
-  // image
+    return {
+      background: `linear-gradient(${bg.angle}deg, ${bg.from}, ${bg.to})`,
+    };
   const url = imageUrls[bg.assetId];
   return {
     backgroundImage: url ? `url("${url}")` : undefined,
@@ -51,7 +53,10 @@ const LayerView: React.FC<{
   const inEased = easeOutCubic(inProgress);
 
   const outStart = totalMs - outAnim.durationMs;
-  const outRaw = Math.max(0, Math.min(1, (tMs - outStart) / Math.max(1, outAnim.durationMs)));
+  const outRaw = Math.max(
+    0,
+    Math.min(1, (tMs - outStart) / Math.max(1, outAnim.durationMs))
+  );
   const outEased = easeInOutCubic(outRaw);
 
   let opacity = layer.opacity * inEased * (1 - outEased);
@@ -61,10 +66,7 @@ const LayerView: React.FC<{
   let blur = 0;
   let rotate = layer.rotation;
 
-  // In animation
   switch (inAnim.type) {
-    case "fade":
-      break;
     case "slideUp":
       translateY = (1 - inEased) * 60;
       break;
@@ -85,10 +87,7 @@ const LayerView: React.FC<{
       break;
   }
 
-  // Out animation
   switch (outAnim.type) {
-    case "fade":
-      break;
     case "slideUp":
       translateY -= outEased * 60;
       break;
@@ -100,12 +99,12 @@ const LayerView: React.FC<{
       break;
   }
 
-  // Loop
   if (loop && loop.type !== "none") {
     const period = loop.periodMs || 3000;
     const w = (tMs / period) * Math.PI * 2;
     if (loop.type === "float") translateY += Math.sin(w) * loop.amplitude;
-    else if (loop.type === "pulse") scale *= 1 + Math.sin(w) * (loop.amplitude / 100);
+    else if (loop.type === "pulse")
+      scale *= 1 + Math.sin(w) * (loop.amplitude / 100);
     else if (loop.type === "spin") rotate += (tMs / period) * 360;
   }
 
@@ -132,7 +131,7 @@ const LayerView: React.FC<{
           whiteSpace: "pre-wrap",
           letterSpacing: "-0.02em",
           lineHeight: 1.1,
-          maxWidth: "90vw",
+          maxWidth: "90%",
         }}
       >
         {layer.content}
@@ -143,13 +142,18 @@ const LayerView: React.FC<{
   if (layer.kind === "shape") {
     const w = layer.width || 20;
     const h = layer.height || w;
-    const radius = layer.shape === "circle" ? "50%" : layer.shape === "blob" ? "40% 60% 70% 30% / 50% 30% 70% 50%" : "12px";
+    const radius =
+      layer.shape === "circle"
+        ? "50%"
+        : layer.shape === "blob"
+        ? "40% 60% 70% 30% / 50% 30% 70% 50%"
+        : "12px";
     return (
       <div
         style={{
           ...baseStyle,
-          width: `${w}vw`,
-          height: `${h}vw`,
+          width: `${w}%`,
+          height: `${h}%`,
           background: layer.color || "#fff",
           borderRadius: radius,
         }}
@@ -162,14 +166,11 @@ const LayerView: React.FC<{
     if (!url) return null;
     const w = layer.width || 30;
     return (
-      <div
-        style={{
-          ...baseStyle,
-          width: `${w}vw`,
-          height: "auto",
-        }}
-      >
-        <Img src={url} style={{ width: "100%", height: "auto", display: "block" }} />
+      <div style={{ ...baseStyle, width: `${w}%`, height: "auto" }}>
+        <Img
+          src={url}
+          style={{ width: "100%", height: "auto", display: "block" }}
+        />
       </div>
     );
   }
@@ -177,7 +178,10 @@ const LayerView: React.FC<{
   return null;
 };
 
-export const MotionSceneComp: React.FC<SceneProps> = ({ scene, narrationUrl, imageUrls }) => {
+export const MotionComposition: React.FC<MotionCompositionProps> = ({
+  scene,
+  imageUrls,
+}) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const tMs = (frame / fps) * 1000;
@@ -185,9 +189,12 @@ export const MotionSceneComp: React.FC<SceneProps> = ({ scene, narrationUrl, ima
 
   return (
     <AbsoluteFill style={bgStyle(scene, imageUrls)}>
-      {scene.background.type === "image" && (scene.background as any).overlay && (
-        <AbsoluteFill style={{ background: (scene.background as any).overlay }} />
-      )}
+      {scene.background.type === "image" &&
+        (scene.background as any).overlay && (
+          <AbsoluteFill
+            style={{ background: (scene.background as any).overlay }}
+          />
+        )}
       {scene.layers.map((l) => (
         <LayerView
           key={l.id}
@@ -197,7 +204,6 @@ export const MotionSceneComp: React.FC<SceneProps> = ({ scene, narrationUrl, ima
           imageUrls={imageUrls}
         />
       ))}
-      {narrationUrl && <Audio src={narrationUrl} />}
     </AbsoluteFill>
   );
 };
