@@ -150,6 +150,69 @@ export type Database = {
         }
         Relationships: []
       }
+      render_jobs: {
+        Row: {
+          created_at: string
+          error: string | null
+          id: string
+          narration_asset_id: string | null
+          output_path: string | null
+          output_url: string | null
+          pinned_asset_ids: string[]
+          progress: number
+          project_id: string
+          scene: Json
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          error?: string | null
+          id?: string
+          narration_asset_id?: string | null
+          output_path?: string | null
+          output_url?: string | null
+          pinned_asset_ids?: string[]
+          progress?: number
+          project_id: string
+          scene: Json
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          error?: string | null
+          id?: string
+          narration_asset_id?: string | null
+          output_path?: string | null
+          output_url?: string | null
+          pinned_asset_ids?: string[]
+          progress?: number
+          project_id?: string
+          scene?: Json
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "render_jobs_narration_asset_id_fkey"
+            columns: ["narration_asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "render_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       renders: {
         Row: {
           created_at: string
