@@ -326,11 +326,99 @@ const Editor = () => {
     if (projectId) await supabase.from("projects").update({ name }).eq("id", projectId);
   };
 
+  // Trigger MP4 render via remote Remotion worker
+  const triggerRender = useCallback(async (sceneJson: any, narrationAssetId: string | null) => {
+    if (!user || !projectId) return;
+    try {
+      const { data, error } = await supabase.functions.invoke("enqueue-render", {
+        body: {
+          projectId,
+          scene: sceneJson,
+          narrationAssetId,
+          pinnedAssetIds,
+        },
+      });
+      if (error) throw error;
+      if (data?.jobId) {
+        setRenderingJobId(data.jobId);
+        toast.loading("🎥 Renderizando MP4…", { id: `render-${data.jobId}`, duration: Infinity });
+      }
+    } catch (e: any) {
+      const msg = e?.message || "Falha ao enfileirar render";
+      if (msg.includes("Worker não configurado") || msg.includes("REMOTION_WORKER_URL")) {
+        toast.error("Worker do Remotion ainda não configurado — veja worker/README.md");
+      } else {
+        toast.error(msg);
+      }
+    }
+  }, [user, projectId, pinnedAssetIds]);
+
+  // Realtime: listen for render_job updates on this project
+  useEffect(() => {
+    if (!user || !projectId) return;
+    const channel = supabase
+      .channel(`render-jobs-${projectId}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "render_jobs", filter: `project_id=eq.${projectId}` },
+        (payload) => {
+          const row = payload.new as any;
+          if (row.status === "done" && row.output_url) {
+            setLatestRenderUrl(row.output_url);
+            setRenderingJobId(null);
+            toast.success("✅ MP4 pronto", {
+              id: `render-${row.id}`,
+              duration: 8000,
+              action: {
+                label: "Baixar",
+                onClick: () => window.open(row.output_url, "_blank"),
+              },
+            });
+          } else if (row.status === "error") {
+            setRenderingJobId(null);
+            toast.error(`Render falhou: ${row.error || "erro desconhecido"}`, { id: `render-${row.id}` });
+          } else if (row.status === "rendering" && row.progress) {
+            toast.loading(`🎥 Renderizando MP4… ${Math.round(row.progress)}%`, {
+              id: `render-${row.id}`,
+              duration: Infinity,
+            });
+          }
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user, projectId]);
+
+  // Load latest done render on mount
+  useEffect(() => {
+    if (!projectId) return;
+    supabase
+      .from("render_jobs")
+      .select("output_url")
+      .eq("project_id", projectId)
+      .eq("status", "done")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => { if (data?.output_url) setLatestRenderUrl(data.output_url); });
+  }, [projectId]);
+
   const handleExport = async () => {
+    if (latestRenderUrl) {
+      window.open(latestRenderUrl, "_blank");
+      return;
+    }
+    // Try to render the last motion clip on the timeline
+    const motionClip = [...clips].reverse().find(c => c.effects?.kind === "motion_scene" && c.effects?.scene);
+    if (!motionClip) {
+      toast.info("Gere uma motion no chat primeiro — o MP4 sai automaticamente.");
+      return;
+    }
     setExporting(true);
-    toast.info("Render queued — server-side rendering coming in next update");
-    setTimeout(() => setExporting(false), 1500);
+    await triggerRender(motionClip.effects.scene, null);
+    setExporting(false);
   };
+
 
   // Track the most recent motion_scene clip id added in the current AI turn,
   // so when narration arrives we can stretch it to match.
