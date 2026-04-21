@@ -126,6 +126,7 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, 
             assets: assets.map(a => ({ id: a.id, type: a.type, name: a.name })),
             clips: clips.map(c => ({ track: c.track, start: c.start_time, end: c.end_time, effects: c.effects })),
             currentTime,
+            selectedVoice: `${selectedVoice.name} (${selectedVoice.tone}) — id ${selectedVoice.id}`,
           },
         }),
       });
@@ -300,12 +301,45 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, 
         ))}
       </div>
 
+      {/* Voice picker */}
+      <div className="px-3 pt-2 relative">
+        <div className="absolute inset-x-0 top-0 divider-h" />
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest font-semibold text-muted-foreground shrink-0">
+            <Mic className="size-3" /> Voz
+          </div>
+          <Select value={selectedVoiceId} onValueChange={onSelectVoice}>
+            <SelectTrigger className="h-8 text-xs flex-1 bg-panel-elevated/40 border-border-strong/40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {VOICES.map((v) => (
+                <SelectItem key={v.id} value={v.id} className="text-xs">
+                  <span className="font-semibold">{v.name}</span>
+                  <span className="text-muted-foreground ml-2">{v.tone}</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            onClick={playPreview}
+            disabled={previewing}
+            title="Pré-ouvir voz"
+            className="size-8 shrink-0 hover:bg-panel-elevated"
+          >
+            {previewing ? <Loader2 className="size-3.5 animate-spin" /> : <Volume2 className="size-3.5" />}
+          </Button>
+        </div>
+      </div>
+
       {/* Input */}
       <form
         onSubmit={(e) => { e.preventDefault(); send(input); }}
         className="p-3 relative"
       >
-        <div className="absolute inset-x-0 top-0 divider-h" />
         <div className={cn(
           "rounded-xl glass-panel border transition-cinema p-2",
           focused ? "border-primary/50 shadow-[0_0_24px_-4px_hsl(var(--primary)/0.4)]" : "border-border-strong/40"
@@ -333,7 +367,9 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, 
           </div>
         </div>
         <div className="text-center mt-2">
-          <span className="text-[9px] text-muted-foreground/50 font-mono uppercase tracking-widest">Powered by Claude Sonnet 4.5</span>
+          <span className="text-[9px] text-muted-foreground/50 font-mono uppercase tracking-widest">
+            Claude Sonnet 4.5 · ElevenLabs · {selectedVoice.name}
+          </span>
         </div>
       </form>
     </aside>
