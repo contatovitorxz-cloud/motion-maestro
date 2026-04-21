@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Sparkles, Loader2, Wand2, CheckCircle2, Scissors, Captions, Type, Zap } from "lucide-react";
+import { Send, Sparkles, Loader2, Wand2, CheckCircle2, Scissors, Captions, Type, Zap, Mic, Volume2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
 import type { Asset, Clip } from "@/pages/Editor";
 import { toast } from "sonner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { VOICES, DEFAULT_VOICE_ID, getVoice } from "./voices";
 
 interface Props {
   projectId: string;
@@ -15,6 +17,8 @@ interface Props {
   clips: Clip[];
   currentTime: number;
   onApplyAction: (action: { name: string; args: any }) => void;
+  selectedVoiceId: string;
+  onSelectVoice: (id: string) => void;
 }
 
 interface Message {
@@ -25,18 +29,48 @@ interface Message {
 }
 
 const SUGGESTIONS = [
+  { icon: Mic, text: "Crie uma intro com narração 'Bem-vindo à Motiona'", hint: "Voz + motion" },
   { icon: Scissors, text: "Cut all the silences", hint: "Auto-detect" },
   { icon: Captions, text: "Add kinetic captions for the whole video", hint: "Word reveal" },
-  { icon: Type, text: "Add a lower-third with my name at 0:03", hint: "Identity card" },
   { icon: Zap, text: "Create a motion opening scene", hint: "Hook intro" },
 ];
 
-const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction }: Props) => {
+const VOICE_STORAGE_KEY = "motiona:lastVoice";
+
+const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, selectedVoiceId, onSelectVoice }: Props) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const previewCacheRef = useRef<Map<string, string>>(new Map());
   const scrollRef = useRef<HTMLDivElement>(null);
+  const selectedVoice = getVoice(selectedVoiceId);
+
+  const playPreview = async () => {
+    if (previewing) return;
+    setPreviewing(true);
+    try {
+      const cached = previewCacheRef.current.get(selectedVoiceId);
+      let url = cached;
+      if (!url) {
+        const { data, error } = await supabase.functions.invoke("generate-narration", {
+          body: { text: "Olá! Esta é minha voz para a sua narração.", voiceId: selectedVoiceId, projectId },
+        });
+        if (error) throw error;
+        url = data?.signedUrl;
+        if (url) previewCacheRef.current.set(selectedVoiceId, url);
+      }
+      if (!url) throw new Error("No preview url");
+      const audio = new Audio(url);
+      audio.volume = 0.9;
+      await audio.play();
+      audio.onended = () => setPreviewing(false);
+    } catch (e: any) {
+      toast.error(e.message || "Preview failed");
+      setPreviewing(false);
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -92,6 +126,7 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction }
             assets: assets.map(a => ({ id: a.id, type: a.type, name: a.name })),
             clips: clips.map(c => ({ track: c.track, start: c.start_time, end: c.end_time, effects: c.effects })),
             currentTime,
+            selectedVoice: `${selectedVoice.name} (${selectedVoice.tone}) — id ${selectedVoice.id}`,
           },
         }),
       });
@@ -266,12 +301,45 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction }
         ))}
       </div>
 
+      {/* Voice picker */}
+      <div className="px-3 pt-2 relative">
+        <div className="absolute inset-x-0 top-0 divider-h" />
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest font-semibold text-muted-foreground shrink-0">
+            <Mic className="size-3" /> Voz
+          </div>
+          <Select value={selectedVoiceId} onValueChange={onSelectVoice}>
+            <SelectTrigger className="h-8 text-xs flex-1 bg-panel-elevated/40 border-border-strong/40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {VOICES.map((v) => (
+                <SelectItem key={v.id} value={v.id} className="text-xs">
+                  <span className="font-semibold">{v.name}</span>
+                  <span className="text-muted-foreground ml-2">{v.tone}</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            onClick={playPreview}
+            disabled={previewing}
+            title="Pré-ouvir voz"
+            className="size-8 shrink-0 hover:bg-panel-elevated"
+          >
+            {previewing ? <Loader2 className="size-3.5 animate-spin" /> : <Volume2 className="size-3.5" />}
+          </Button>
+        </div>
+      </div>
+
       {/* Input */}
       <form
         onSubmit={(e) => { e.preventDefault(); send(input); }}
         className="p-3 relative"
       >
-        <div className="absolute inset-x-0 top-0 divider-h" />
         <div className={cn(
           "rounded-xl glass-panel border transition-cinema p-2",
           focused ? "border-primary/50 shadow-[0_0_24px_-4px_hsl(var(--primary)/0.4)]" : "border-border-strong/40"
@@ -299,7 +367,9 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction }
           </div>
         </div>
         <div className="text-center mt-2">
-          <span className="text-[9px] text-muted-foreground/50 font-mono uppercase tracking-widest">Powered by Claude Sonnet 4.5</span>
+          <span className="text-[9px] text-muted-foreground/50 font-mono uppercase tracking-widest">
+            Claude Sonnet 4.5 · ElevenLabs · {selectedVoice.name}
+          </span>
         </div>
       </form>
     </aside>

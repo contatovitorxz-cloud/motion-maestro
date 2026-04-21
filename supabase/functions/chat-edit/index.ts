@@ -71,6 +71,20 @@ const tools = [
       required: ["description"],
     },
   },
+  {
+    name: "generate_narration",
+    description:
+      "Generate AI voice narration with ElevenLabs and place it on the audio track. Use this when the user wants spoken audio, voiceover, or narration. If the user did not provide the script, write a short cinematic script yourself (1-3 sentences) and pass it as `text`. The user has selected a default voice in the UI — only pass `voice_id` if they explicitly named a different voice.",
+    input_schema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "The script to narrate. Required." },
+        voice_id: { type: "string", description: "Optional ElevenLabs voice id. If omitted, the user's selected voice is used." },
+        start: { type: "number", description: "Start time in seconds on the audio track. Defaults to current playhead." },
+      },
+      required: ["text"],
+    },
+  },
 ];
 
 serve(async (req) => {
@@ -82,14 +96,22 @@ serve(async (req) => {
     if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
 
     const systemPrompt = `You are Motiona, an AI video editor that operates a CapCut-style timeline.
-You help users edit their video by calling tools that mutate the timeline (add text, lower-thirds, captions, transitions, generate motion scenes, cut silences).
+You help users edit their video by calling tools that mutate the timeline (add text, lower-thirds, captions, transitions, generate motion scenes, cut silences, generate narration with ElevenLabs).
 
 Current editor context:
 - Assets: ${JSON.stringify(context?.assets || [])}
 - Existing timeline clips: ${JSON.stringify(context?.clips || [])}
 - Playhead is at: ${context?.currentTime ?? 0}s
+- User's selected default voice: ${context?.selectedVoice || "Sarah (clear, conversational)"}
 
 When the user asks for something, briefly explain (1-2 sentences) what you're going to do, then CALL the appropriate tool(s). You may call multiple tools in one turn.
+
+NARRATION RULES:
+- When the user asks for narration, voiceover, or spoken audio along with a motion scene, call BOTH \`generate_motion_scene\` AND \`generate_narration\` in the same turn.
+- If the user did not provide the script text, WRITE a short cinematic script yourself (1-3 sentences), show it in your reply ("Roteiro: …"), then call \`generate_narration\` with that text.
+- Do NOT ask for a voice — the user picks the voice in the UI. Only pass \`voice_id\` if the user explicitly names a voice in their message.
+- Respond in the same language the user wrote in (Portuguese in/Portuguese out, English in/English out).
+
 If a request is ambiguous, ask one short clarifying question. Otherwise, act.
 Be friendly, concise, and confident — like a senior motion designer.`;
 
