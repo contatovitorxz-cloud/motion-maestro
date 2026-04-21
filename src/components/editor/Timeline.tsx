@@ -308,6 +308,7 @@ const Timeline = ({
                   const left = (c.start_time / duration) * 100;
                   const width = ((c.end_time - c.start_time) / duration) * 100;
                   const asset = assets.find(a => a.id === c.asset_id);
+                  const isAudio = c.track === "audio";
                   const label = asset?.name || c.effects?.text || c.effects?.kind || "clip";
                   const selected = selectedClipId === c.id;
                   const isColliding = collidingId === c.id;
@@ -335,7 +336,23 @@ const Timeline = ({
                         className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize bg-white/0 hover:bg-white/40 z-10"
                       />
                       <div className="absolute top-0 inset-x-0 h-px bg-white/40" />
-                      <span className="truncate relative z-[1] drop-shadow px-2">{label}</span>
+
+                      {/* Audio waveform decoration */}
+                      {isAudio && (
+                        <div className="absolute inset-0 flex items-center justify-around px-3 pointer-events-none opacity-60">
+                          {Array.from({ length: 24 }).map((_, i) => {
+                            // deterministic pseudo-random heights based on clip id + index
+                            const seed = (c.id.charCodeAt(0) + i * 7) % 100;
+                            const h = 20 + (seed % 60);
+                            return <div key={i} className="w-[2px] bg-white/80 rounded-full" style={{ height: `${h}%` }} />;
+                          })}
+                        </div>
+                      )}
+
+                      <span className="truncate relative z-[1] drop-shadow px-2 flex items-center gap-1">
+                        {isAudio && <span>🔊</span>}
+                        {label}
+                      </span>
                       {/* Right trim handle */}
                       <div
                         onMouseDown={(e) => beginClipDrag(e, c, "trim-right")}

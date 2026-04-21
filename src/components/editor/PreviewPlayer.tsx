@@ -1,4 +1,4 @@
-import { RefObject, useEffect, useState } from "react";
+import { RefObject, useEffect, useRef, useState } from "react";
 import { Play, Pause, SkipBack, SkipForward, Maximize2, Volume2, Film, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -14,10 +14,12 @@ interface Props {
   setIsPlaying: (p: boolean) => void;
   currentTime: number;
   clips: Clip[];
+  assets: Asset[];
 }
 
-const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlaying, setIsPlaying, currentTime, clips }: Props) => {
+const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlaying, setIsPlaying, currentTime, clips, assets }: Props) => {
   const [volume, setVolume] = useState(100);
+  const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
 
   useEffect(() => {
     const v = videoRef.current; if (!v) return;
@@ -51,6 +53,39 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
     currentTime >= c.start_time && currentTime <= c.end_time
   );
 
+  // Audio clips with valid asset url
+  const audioClips = clips.filter(c => c.track === "audio" && c.asset_id);
+
+  // Sync each audio element with the playhead
+  useEffect(() => {
+    audioClips.forEach((clip) => {
+      const el = audioRefs.current.get(clip.id);
+      if (!el) return;
+      const inRange = currentTime >= clip.start_time && currentTime < clip.end_time;
+      const localTime = Math.max(0, currentTime - clip.start_time);
+      const vol = (typeof clip.effects?.volume === "number" ? clip.effects.volume : 100) / 100;
+      el.volume = vol * (volume / 100);
+
+      if (inRange) {
+        // Resync if drifted
+        if (Math.abs(el.currentTime - localTime) > 0.25) {
+          try { el.currentTime = localTime; } catch {}
+        }
+        if (isPlaying && el.paused) el.play().catch(() => {});
+        if (!isPlaying && !el.paused) el.pause();
+      } else {
+        if (!el.paused) el.pause();
+      }
+    });
+  }, [currentTime, isPlaying, audioClips, volume]);
+
+  // Pause everything when no longer playing
+  useEffect(() => {
+    if (!isPlaying) {
+      audioRefs.current.forEach((el) => { if (!el.paused) el.pause(); });
+    }
+  }, [isPlaying]);
+
   const fmt = (s: number) => {
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60).toString().padStart(2, "0");
@@ -60,12 +95,29 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
 
   return (
     <div className="flex-1 min-h-0 flex flex-col relative">
+      {/* Hidden audio elements per audio clip */}
+      {audioClips.map((c) => {
+        const a = assets.find(x => x.id === c.asset_id);
+        if (!a?.url) return null;
+        return (
+          <audio
+            key={c.id}
+            ref={(el) => {
+              if (el) audioRefs.current.set(c.id, el);
+              else audioRefs.current.delete(c.id);
+            }}
+            src={a.url}
+            preload="auto"
+            className="hidden"
+          />
+        );
+      })}
+
       {/* Cinema viewport */}
       <div className="flex-1 min-h-[280px] grid place-items-center p-8 relative">
         <div className="absolute inset-0 bg-gradient-vignette pointer-events-none" />
 
         <div className="relative w-full max-w-5xl aspect-video group">
-          {/* Floating monitor shadow */}
           <div className="absolute inset-0 rounded-md bg-black ring-1 ring-white/[0.06] overflow-hidden">
             {asset?.url ? (
               <video
@@ -86,11 +138,9 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
               </div>
             )}
 
-            {/* Letterbox bands */}
             <div className="absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-black/80 to-transparent pointer-events-none" />
             <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
 
-            {/* Overlay layer */}
             <div className="absolute inset-0 pointer-events-none flex flex-col justify-end p-10 gap-2">
               {activeOverlays.map((c) => (
                 <div
@@ -106,7 +156,6 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
               ))}
             </div>
 
-            {/* Live indicator */}
             {asset && (
               <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2 py-1 rounded bg-black/60 backdrop-blur-sm border border-white/10">
                 <span className="size-1.5 rounded-full bg-destructive animate-pulse" />
@@ -121,7 +170,6 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
       <div className="h-16 shrink-0 relative bg-obsidian/90 backdrop-blur-xl flex items-center px-6 gap-4">
         <div className="absolute inset-x-0 top-0 divider-h" />
 
-        {/* Skip back */}
         <Button
           size="icon"
           variant="ghost"
@@ -131,7 +179,6 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
           <SkipBack className="size-4" />
         </Button>
 
-        {/* Play */}
         <Button
           size="icon"
           onClick={togglePlay}
@@ -140,7 +187,6 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
           {isPlaying ? <Pause className="size-5 fill-current" /> : <Play className="size-5 fill-current ml-0.5" />}
         </Button>
 
-        {/* Skip forward */}
         <Button
           size="icon"
           variant="ghost"
@@ -150,7 +196,6 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
           <SkipForward className="size-4" />
         </Button>
 
-        {/* Center timecode */}
         <div className="flex-1 flex justify-center">
           <div className="flex items-baseline gap-2 px-5 py-1.5 rounded-lg bg-black/40 border border-border-strong/40">
             <span className="font-mono text-xl font-semibold text-amber tabular-nums tracking-tight">
@@ -163,7 +208,6 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
           </div>
         </div>
 
-        {/* Volume popover */}
         <Popover>
           <PopoverTrigger asChild>
             <Button size="icon" variant="ghost" className="size-9 hover:bg-panel-elevated text-muted-foreground hover:text-foreground transition-cinema">
@@ -184,7 +228,6 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
           </PopoverContent>
         </Popover>
 
-        {/* Fullscreen */}
         <Button
           size="icon"
           variant="ghost"
