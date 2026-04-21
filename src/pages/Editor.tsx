@@ -66,6 +66,7 @@ const Editor = () => {
 
     if (!project) { toast.error("Project not found"); navigate("/dashboard"); return; }
     setProjectName(project.name);
+    if (project.duration) setDuration(Number(project.duration));
 
     const enriched = await Promise.all((assetsData || []).map(async (a: any) => {
       const { data } = await supabase.storage.from("assets").createSignedUrl(a.storage_path, 3600);
@@ -200,6 +201,19 @@ const Editor = () => {
     return () => window.removeEventListener("keydown", onKey);
   }, [handleSplit, handleDelete, handleUndo, handleRedo, selectedClipId, currentTime, duration]);
 
+  const probeMediaDuration = (url: string, type: Asset["type"]): Promise<number> => {
+    return new Promise((resolve) => {
+      if (type === "image") return resolve(5);
+      const el = document.createElement(type === "audio" ? "audio" : "video") as HTMLMediaElement;
+      el.preload = "metadata";
+      el.src = url;
+      const done = (d: number) => resolve(Number.isFinite(d) && d > 0 ? d : 10);
+      el.onloadedmetadata = () => done(el.duration);
+      el.onerror = () => done(10);
+      setTimeout(() => done(10), 5000);
+    });
+  };
+
   const handleUpload = async (files: File[]) => {
     if (!user || !projectId) return;
     for (const file of files) {
@@ -221,13 +235,42 @@ const Editor = () => {
       if (type === "video" && !activeAsset) setActiveAsset(enriched);
       toast.success(`Uploaded ${file.name}`);
 
+      // Probe real duration
+      const realDuration = signed?.signedUrl ? await probeMediaDuration(signed.signedUrl, type) : 10;
+
+      // Place at end of existing clips on the destination track to avoid overlap
+      const track = type === "audio" ? "audio" : "video";
+      const lastEnd = clips.filter(c => c.track === track).reduce((m, c) => Math.max(m, c.end_time), 0);
+
+      const newClip: Clip = {
+        id: crypto.randomUUID(),
+        track,
+        start_time: lastEnd,
+        end_time: lastEnd + realDuration,
+        asset_id: data.id,
+        effects: {},
+      };
+
       await supabase.from("timeline_clips").insert({
+        id: newClip.id,
         project_id: projectId, user_id: user.id,
-        track: type === "audio" ? "audio" : "video",
-        start_time: 0, end_time: 10, asset_id: data.id, effects: {},
+        track: newClip.track,
+        start_time: newClip.start_time, end_time: newClip.end_time,
+        asset_id: data.id, effects: {},
       });
+
+      // Add to local state via history (no full reload)
+      const next = [...clips, newClip];
+      lastPersistedRef.current.set(newClip.id, newClip);
+      commitClips(next);
+
+      // Bump project duration if needed
+      const newTotal = Math.max(duration, newClip.end_time);
+      if (newTotal > duration) {
+        setDuration(newTotal);
+        await supabase.from("projects").update({ duration: newTotal }).eq("id", projectId);
+      }
     }
-    loadProject();
   };
 
   const renameProject = async (name: string) => {
@@ -245,39 +288,60 @@ const Editor = () => {
     if (!user || !projectId) return;
     const { name, args } = action;
     try {
+      let newClip: Clip | null = null;
+
       if (name === "add_text_overlay" || name === "add_lower_third") {
-        await supabase.from("timeline_clips").insert({
-          project_id: projectId, user_id: user.id,
+        const start = args.start ?? currentTime;
+        newClip = {
+          id: crypto.randomUUID(),
           track: "text",
-          start_time: args.start ?? currentTime,
-          end_time: (args.start ?? currentTime) + (args.duration ?? 3),
+          start_time: start,
+          end_time: start + (args.duration ?? 3),
           asset_id: null,
           effects: { kind: name, text: args.text, style: args.style ?? "default" },
-        });
+        };
       } else if (name === "add_captions") {
-        await supabase.from("timeline_clips").insert({
-          project_id: projectId, user_id: user.id, track: "captions",
-          start_time: 0, end_time: duration || 30, asset_id: null,
+        newClip = {
+          id: crypto.randomUUID(),
+          track: "captions",
+          start_time: 0,
+          end_time: duration || 30,
+          asset_id: null,
           effects: { kind: "captions", style: args.style ?? "kinetic" },
-        });
+        };
       } else if (name === "add_transition") {
-        await supabase.from("timeline_clips").insert({
-          project_id: projectId, user_id: user.id, track: "overlay",
-          start_time: args.at ?? currentTime, end_time: (args.at ?? currentTime) + 1,
-          asset_id: null, effects: { kind: "transition", style: args.style ?? "fade" },
-        });
+        const start = args.at ?? currentTime;
+        newClip = {
+          id: crypto.randomUUID(),
+          track: "overlay",
+          start_time: start,
+          end_time: start + 1,
+          asset_id: null,
+          effects: { kind: "transition", style: args.style ?? "fade" },
+        };
+      } else if (name === "generate_motion_scene") {
+        const start = args.start ?? 0;
+        newClip = {
+          id: crypto.randomUUID(),
+          track: "overlay",
+          start_time: start,
+          end_time: start + (args.duration ?? 5),
+          asset_id: null,
+          effects: { kind: "motion_scene", description: args.description },
+        };
       } else if (name === "cut_silence") {
         toast.success("Silences marked for removal");
-      } else if (name === "generate_motion_scene") {
-        await supabase.from("timeline_clips").insert({
-          project_id: projectId, user_id: user.id, track: "overlay",
-          start_time: args.start ?? 0, end_time: (args.start ?? 0) + (args.duration ?? 5),
-          asset_id: null, effects: { kind: "motion_scene", description: args.description },
-        });
+        return;
       }
-      loadProject();
+
+      if (newClip) {
+        const next = [...clips, newClip];
+        handleCommit(next);
+        setSelectedClipId(newClip.id);
+        toast.success(`AI added: ${name.replace(/_/g, " ")}`);
+      }
     } catch (e: any) { toast.error(e.message); }
-  }, [user, projectId, currentTime, duration, loadProject]);
+  }, [user, projectId, currentTime, duration, clips, handleCommit]);
 
   if (authLoading || loading) {
     return (
@@ -300,7 +364,7 @@ const Editor = () => {
           <Link to="/dashboard" className="flex items-center justify-center size-8 rounded-md hover:bg-panel-elevated text-muted-foreground hover:text-foreground transition-cinema">
             <ChevronLeft className="size-4" />
           </Link>
-          <div className="size-8 rounded-lg bg-gradient-primary grid place-items-center shrink-0 shadow-elegant">
+          <div className="size-8 rounded-lg bg-gradient-primary grid place-items-center shrink-0">
             <Sparkles className="size-4 text-primary-foreground" />
           </div>
           <Input
@@ -327,7 +391,7 @@ const Editor = () => {
             size="sm"
             onClick={handleExport}
             disabled={exporting}
-            className="bg-gradient-primary hover:opacity-90 transition-cinema h-9 px-4 font-semibold shadow-elegant"
+            className="bg-gradient-primary hover:opacity-90 transition-cinema h-9 px-4 font-semibold"
           >
             {exporting ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
             Export
@@ -345,13 +409,13 @@ const Editor = () => {
           onApplyAction={applyAiAction}
         />
 
-        <div className="flex-1 flex flex-col min-w-0 bg-background relative">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-background relative">
           <div className="absolute inset-0 bg-gradient-glow pointer-events-none" />
           <PreviewPlayer
             asset={activeAsset}
             videoRef={videoRef}
             onTimeUpdate={setCurrentTime}
-            onDurationChange={setDuration}
+            onDurationChange={(d) => setDuration(prev => Math.max(prev, d))}
             isPlaying={isPlaying}
             setIsPlaying={setIsPlaying}
             clips={clips}
@@ -359,7 +423,7 @@ const Editor = () => {
           />
           <Timeline
             clips={clips}
-            duration={duration || 30}
+            duration={Math.max(duration, clips.reduce((m, c) => Math.max(m, c.end_time), 0), 30)}
             currentTime={currentTime}
             onSeek={(t) => { setCurrentTime(t); if (videoRef.current) videoRef.current.currentTime = t; }}
             assets={assets}
