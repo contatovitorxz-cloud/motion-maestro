@@ -16,7 +16,7 @@ interface Props {
   assets: Asset[];
   clips: Clip[];
   currentTime: number;
-  onApplyAction: (action: { name: string; args: any }) => void;
+  onApplyAction: (action: { name: string; args: any }) => void | Promise<void>;
   selectedVoiceId: string;
   onSelectVoice: (id: string) => void;
   pinnedAssets?: Asset[];
