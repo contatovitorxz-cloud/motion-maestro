@@ -563,7 +563,7 @@ const Editor = () => {
         toast.success(`AI added: ${name.replace(/_/g, " ")}`);
       }
     } catch (e: any) { toast.error(e.message); }
-  }, [user, projectId, currentTime, duration, clips, handleCommit, selectedVoiceId]);
+  }, [user, projectId, currentTime, duration, clips, handleCommit, selectedVoiceId, triggerRender]);
 
   if (authLoading || loading) {
     return (
