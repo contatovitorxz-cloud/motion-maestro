@@ -1,102 +1,105 @@
 
+# AI gera o plano da motion mas não renderiza vídeo
 
-# Fixar imagens como referência visual para a AI
+Olhei a screenshot e o estado atual: o chat aceita comando, a edge `chat-edit` retorna a "cena" descrita, e até narração roda. Mas não existe nenhum pipeline que pegue essa cena descrita pela AI e **transforme em vídeo na track MOTION**. Hoje a track MOTION fica vazia porque ninguém escreve clip nela. Não tem renderer.
 
-Hoje você sobe imagens para a sidebar mas elas não viajam para a AI quando ela cria a motion — ela inventa do zero. Você quer poder marcar uma ou mais imagens como **"pinned"** (referência) e a partir daí toda motion gerada pela AI considera essas imagens (cor, estilo, composição, ou usa a própria imagem na cena).
-
-## Como vai funcionar
+## Diagnóstico rápido
 
 ```text
-Sidebar de assets
-   │
-   ▼  (clicar no ícone 📌 sobre a thumbnail)
-[Asset marcado como PINNED]
-   │
-   ▼
-Aparece no topo do AiChat: barra "📌 Referências (2)" com miniaturas
-   │
-   ▼
-Toda mensagem enviada → context.pinnedImages: [{name, url, description}]
-   │
-   ▼
-chat-edit injeta no system prompt:
-"O usuário fixou estas imagens como referência visual obrigatória.
-Use-as como guia de estilo, paleta e composição na cena de motion."
+User → AiChat → chat-edit (Claude) → tool_call: generate_motion_scene
+                                          │
+                                          ▼
+                                    [retorna JSON com descrição]
+                                          │
+                                          ▼
+                                    ❌ NADA acontece com isso
+                                          
+Timeline.MOTION track ──── permanece vazia
+PreviewPlayer ──────────── não tem o que renderizar
 ```
 
-## Mudanças
+A skill `remotion-video` que você tem é para renderizar **MP4 offline via CLI no sandbox** — não roda no browser do app. Pra "criar motion" no editor em tempo real precisamos de um renderer **client-side** (canvas/CSS) que leia a descrição da AI.
 
-### 1) Marcar/desmarcar imagens como referência
-- Em `EditorSidebar.tsx`, sobre cada thumbnail de **imagem**, adicionar um botão pin (ícone `Pin` do lucide) no canto superior direito, visível no hover ou sempre visível se já estiver fixada.
-- Estado `pinnedAssetIds: Set<string>` mantido em `Editor.tsx` e persistido em `localStorage` por projeto (`motiona:pinned:${projectId}`).
-- Visual de "fixada": borda dourada `ring-2 ring-amber-400/60` + ícone pin preenchido amarelo.
-- Limite: **até 4 imagens fixadas** (suficiente para referência, evita estourar contexto). Tentar fixar a 5ª mostra toast "Máximo 4 referências".
+## Plano: motion real e visível, sem Remotion
 
-### 2) Barra de referências no AiChat
-- Logo abaixo do header do `AiChat` (entre header e mensagens), quando há ≥1 pinned:
-  - Faixa horizontal `h-14` com fundo `bg-white/[0.02]` borda inferior `white/[0.06]`.
-  - Label à esquerda: `📌 REFERÊNCIAS` mono `text-[10px] tracking-[0.2em] text-amber-400/70`.
-  - Miniaturas (size-9 rounded-md) de cada imagem fixada, cada uma com X no hover para desafixar rápido.
-  - Texto pequeno: "AI vai considerar essas imagens".
+### 1) Definir um schema de "MotionScene" leve
+Em vez do Claude descrever em texto livre, ele retorna JSON estruturado que o front sabe renderizar:
 
-### 3) Enviar referências para a edge function
-- `AiChat.tsx` recebe nova prop `pinnedAssets: Asset[]` (filtrados de `assets` por `pinnedAssetIds`).
-- No payload do fetch para `chat-edit`, adicionar `context.pinnedImages`:
-  ```ts
-  pinnedImages: pinnedAssets.map(a => ({
-    name: a.name,
-    url: a.url,                  // URL assinada (válida por 1h)
-    description: a.metadata?.description ?? null,
-  }))
-  ```
-
-### 4) Edge function: incluir imagens no prompt + opcionalmente como vision input
-**a) Sempre injeta no system prompt (texto):**
-```
-PINNED REFERENCES (${n} images the user wants you to honor):
-${list of: "- name.jpg — description"}
-Use these as your visual north: match palette, mood, composition, subject.
-When calling generate_motion_scene, your `description` MUST mention how the
-scene reflects these references.
-```
-
-**b) Vision (opcional, mas é o que faz brilhar):** o Claude `claude-sonnet-4-5` aceita imagens como conteúdo. No primeiro `messages[0]` (ou anexado à última mensagem do usuário), incluir blocos `image` com as URLs:
 ```ts
-content: [
-  { type: "text", text: userText },
-  ...pinnedImages.map(img => ({
-    type: "image",
-    source: { type: "url", url: img.url }
-  }))
-]
+type MotionScene = {
+  durationMs: number;          // 3000–8000
+  background: { type: 'gradient'|'solid'|'image', value: string|{from,to,angle}, imageAssetId? };
+  layers: Array<{
+    id: string;
+    kind: 'text'|'shape'|'image';
+    content?: string;          // texto
+    assetId?: string;          // se kind=image
+    shape?: 'circle'|'rect'|'blob';
+    x: number; y: number;      // 0–100 (% do canvas)
+    scale: number; rotation: number; opacity: number;
+    color?: string; fontSize?: number; fontWeight?: number;
+    animation: {
+      in:  { type: 'fade'|'slideUp'|'slideDown'|'slideLeft'|'slideRight'|'scaleIn'|'blurIn', durationMs: number, delayMs: number };
+      out: { type: 'fade'|'slideUp'|'scaleOut'|'blurOut', durationMs: number };
+      loop?: { type: 'float'|'pulse'|'spin', amplitude: number };
+    };
+  }>;
+  palette: string[];           // hex, vinda das pinned images
+};
 ```
-Assim o Claude **literalmente vê** as imagens e gera descrições de motion fiéis ao visual.
 
-### 5) Descrição opcional por imagem (nice-to-have leve)
-- No hover da miniatura na barra do chat, um pequeno popover com `<input>` "Como usar essa imagem?" (ex.: "use como background", "extraia paleta", "logo no canto").
-- Salva em `assets.metadata.pin_description` no banco (campo já é `Json`, sem migration).
-- Vai junto no `description` enviado ao prompt.
+### 2) Edge function `chat-edit` retorna esse JSON
+- Atualizar a tool `generate_motion_scene` para exigir esse schema (Zod-like na descrição da tool).
+- Sistema prompt instrui: "Você é diretor de motion. Use a paleta das pinned images. Componha 2–5 layers. Duração 4–6s default."
+- Se há pinned images, o Claude (vision) extrai 3–5 cores e devolve em `palette`, e pode referenciar `assetId` de uma pinned image como background ou layer.
 
-### 6) Mostrar na resposta da AI
-- O AI Director (auto mode) é instruído a mencionar no campo "🎨 Cena": "inspirado em: foto1.jpg, foto2.jpg" — usuário vê que a referência foi considerada.
+### 3) Componente novo: `MotionRenderer.tsx` (client-side)
+- Recebe `scene: MotionScene` + `currentTimeMs` + `assets`.
+- Renderiza num `<div>` 16:9 absoluto:
+  - Background: gradient CSS / cor / `<img>` de asset.
+  - Cada layer vira um `<div>` ou `<img>` posicionado com `transform: translate(x%, y%) scale() rotate()`.
+  - Animações calculadas **frame-based** a partir de `currentTimeMs`:
+    - in: progress = clamp((t - delay)/dur, 0, 1) → easing (cubic-bezier inline via JS)
+    - out: progress = clamp((t - (duration - outDur))/outDur, 0, 1)
+    - loop: `Math.sin(t/period) * amplitude`
+- Sem CSS transitions, sem Framer — só math + style inline. Determinístico, segue o playhead.
+
+### 4) Integrar no fluxo do editor
+- Quando `chat-edit` retorna scene JSON:
+  - `Editor.tsx` cria um clip novo na track **MOTION** com `{ type: 'motion', start, duration: scene.durationMs/1000, payload: scene }`.
+  - Clip aparece visualmente no Timeline (já tem cor da track).
+- `PreviewPlayer.tsx`:
+  - Quando o playhead está dentro de um clip motion, renderiza `<MotionRenderer scene={clip.payload} currentTimeMs={...} assets={...} />` por cima do vídeo (ou no lugar dele se não há vídeo).
+
+### 5) Mensagem de feedback
+- Toast: "🎬 Motion gerada — 4.5s adicionados à timeline"
+- Card no chat mostra preview estático do primeiro frame (mini thumbnail) + botão "Regenerar variação".
+
+### 6) Persistência
+- Clips de motion já vão pra coluna `clips` (jsonb) do projeto. `payload` cabe no JSON.
+- Sem migration nova.
 
 ## Detalhes técnicos
 
-- **Sem migration**: `pinned_description` cabe em `assets.metadata` (Json).
-- **Persistência do pin**: localStorage chaveado por projeto (`motiona:pinned:${projectId}`). Simples, suficiente. Se quiser sincronizar entre dispositivos depois, migra para coluna `pinned boolean` em `assets`.
-- **URLs assinadas**: já são geradas no load. Renovar a cada 1h. O Claude baixa a imagem na hora — URL precisa estar válida durante a chamada.
-- **Custo de tokens**: cada imagem ~1500 tokens. Limite de 4 = ~6k extra por mensagem, aceitável.
-- **Tipo**: só imagens podem ser pinned. Vídeos e áudios não mostram o botão pin.
+- **Tipo do clip**: estender `Clip` em `Editor.tsx` para aceitar `track: 'motion'` e campo opcional `motionScene?: MotionScene`.
+- **Timeline.tsx**: já tem track MOTION pintada — só precisa renderizar o block do clip motion (label "✨ AI Motion").
+- **PreviewPlayer.tsx**: adicionar overlay de MotionRenderer condicional ao playhead estar dentro de um motion clip.
+- **chat-edit/index.ts**: trocar a tool `generate_motion_scene` para retornar schema estrito; system prompt atualizado para emitir JSON válido. Vision continua usando pinned images pra paleta.
+- **Easings**: utilitário `src/lib/easing.ts` com `easeOutCubic`, `easeInOutCubic`, `easeOutBack`.
+- **Performance**: render só dos layers visíveis na janela de tempo do clip. Sem re-render por frame se nada mudou (memo por currentTimeMs arredondado a 16ms).
 
 ## Arquivos
-- **Editado**: `src/pages/Editor.tsx` — estado `pinnedAssetIds`, persistência localStorage, passa `pinnedAssets` para sidebar e chat.
-- **Editado**: `src/components/editor/EditorSidebar.tsx` — botão pin no hover de imagens, estilo "fixada", callback `onTogglePin`.
-- **Editado**: `src/components/editor/AiChat.tsx` — barra de referências no topo, passa `pinnedImages` no payload.
-- **Editado**: `supabase/functions/chat-edit/index.ts` — recebe `context.pinnedImages`, injeta no system prompt, anexa blocos `image` à última mensagem do usuário (vision).
+- **Novo**: `src/components/editor/MotionRenderer.tsx` — renderer client-side puro.
+- **Novo**: `src/lib/motionScene.ts` — tipos `MotionScene` + validação leve.
+- **Novo**: `src/lib/easing.ts` — funções de easing.
+- **Editado**: `supabase/functions/chat-edit/index.ts` — tool schema estrita + prompt de "diretor de motion JSON".
+- **Editado**: `src/pages/Editor.tsx` — ao receber scene, criar clip na track motion + tipo Clip estendido.
+- **Editado**: `src/components/editor/AiChat.tsx` — quando resposta traz motionScene, dispara callback `onMotionGenerated(scene)`.
+- **Editado**: `src/components/editor/PreviewPlayer.tsx` — overlay MotionRenderer quando playhead em clip motion.
+- **Editado**: `src/components/editor/Timeline.tsx` — render visual do clip motion (label + ícone).
 
 ## O que NÃO entra agora
-- Geração real da motion usando a imagem como camada (depende do renderer Remotion — Fase 9).
-- Pinning de vídeos/áudios.
-- Sincronização do pin entre dispositivos (fica em localStorage).
-- Extração automática de paleta da imagem (cor pode ser inferida pelo Claude via vision).
-
+- Export pra MP4 (precisa de Remotion server-side, fica pra Fase 9).
+- Edição manual de keyframes.
+- Áudio sincronizado dentro da motion (ainda usa as tracks separadas).
+- Mais de 1 motion clip ativo ao mesmo tempo (uma por trecho).
