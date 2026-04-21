@@ -1,5 +1,5 @@
 import { useDropzone } from "react-dropzone";
-import { Upload, Film, Image as ImageIcon, Music, Wand2, Plus, Sparkles } from "lucide-react";
+import { Upload, Film, Image as ImageIcon, Music, Wand2, Plus, Sparkles, Pin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Asset } from "@/pages/Editor";
 
@@ -8,6 +8,8 @@ interface Props {
   onUpload: (files: File[]) => void;
   onSelectAsset: (asset: Asset) => void;
   activeAssetId?: string;
+  pinnedAssetIds?: string[];
+  onTogglePin?: (assetId: string) => void;
 }
 
 const presets = [
@@ -17,7 +19,7 @@ const presets = [
   { label: "Logo reveal", desc: "Motion intro", color: "from-track-video/40 to-track-video/10" },
 ];
 
-const EditorSidebar = ({ assets, onUpload, onSelectAsset, activeAssetId }: Props) => {
+const EditorSidebar = ({ assets, onUpload, onSelectAsset, activeAssetId, pinnedAssetIds = [], onTogglePin }: Props) => {
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     accept: { "video/*": [], "image/*": [], "audio/*": [] },
     onDrop: onUpload,
@@ -80,33 +82,51 @@ const EditorSidebar = ({ assets, onUpload, onSelectAsset, activeAssetId }: Props
             <div className="grid grid-cols-2 gap-2">
               {assets.map((a) => {
                 const Icon = iconFor(a.type);
+                const isPinned = pinnedAssetIds.includes(a.id);
+                const canPin = a.type === "image" && !!onTogglePin;
                 return (
-                  <button
+                  <div
                     key={a.id}
-                    onClick={() => a.type === "video" && onSelectAsset(a)}
                     className={cn(
-                      "group relative aspect-video rounded-lg overflow-hidden bg-panel border border-border-strong/40 hover:border-primary/50 transition-cinema",
-                      activeAssetId === a.id && "border-primary ring-2 ring-primary/30"
+                      "group relative aspect-video rounded-lg overflow-hidden bg-panel border border-white/[0.06] hover:border-white/30 transition-cinema cursor-pointer",
+                      activeAssetId === a.id && "border-white ring-1 ring-white/40",
+                      isPinned && "border-amber-400/60 ring-2 ring-amber-400/40"
                     )}
+                    onClick={() => a.type === "video" && onSelectAsset(a)}
                   >
                     {a.type === "image" && a.url ? (
                       <img src={a.url} alt={a.name} className="size-full object-cover group-hover:scale-105 transition-cinema" />
                     ) : a.type === "video" && a.url ? (
                       <video src={a.url} className="size-full object-cover" muted />
                     ) : (
-                      <div className="size-full grid place-items-center bg-gradient-primary-soft">
-                        <Icon className="size-6 text-muted-foreground" />
+                      <div className="size-full grid place-items-center bg-white/[0.03]">
+                        <Icon className="size-6 text-white/40" />
                       </div>
                     )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-obsidian via-transparent to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
                     <div className="absolute bottom-1 left-1.5 right-1.5 flex items-center gap-1">
                       <Icon className="size-2.5 text-white/70 shrink-0" />
                       <span className="text-[10px] text-white truncate font-medium">{a.name}</span>
                     </div>
-                    {activeAssetId === a.id && (
-                      <div className="absolute top-1 right-1 size-1.5 rounded-full bg-primary" />
+                    {canPin && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onTogglePin!(a.id); }}
+                        title={isPinned ? "Desafixar referência" : "Fixar como referência para a AI"}
+                        className={cn(
+                          "absolute top-1 right-1 size-6 rounded-md grid place-items-center transition-cinema backdrop-blur-md border",
+                          isPinned
+                            ? "bg-amber-400/90 border-amber-300 text-black opacity-100"
+                            : "bg-black/60 border-white/20 text-white/70 opacity-0 group-hover:opacity-100 hover:bg-black/80 hover:text-white"
+                        )}
+                      >
+                        <Pin className={cn("size-3", isPinned && "fill-current")} />
+                      </button>
                     )}
-                  </button>
+                    {activeAssetId === a.id && !isPinned && (
+                      <div className="absolute top-1 left-1 size-1.5 rounded-full bg-white" />
+                    )}
+                  </div>
                 );
               })}
             </div>
