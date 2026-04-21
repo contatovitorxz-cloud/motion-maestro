@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { Asset, Clip } from "@/pages/Editor";
+import MotionRenderer from "./MotionRenderer";
+import { isMotionScene } from "@/lib/motionScene";
 
 interface Props {
   asset: Asset | null;
@@ -45,6 +47,25 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
       v.pause();
     }
   }, [isPlaying, videoRef, setIsPlaying, asset]);
+
+  // Fallback playback ticker when there is no <video> element (motion-only)
+  useEffect(() => {
+    if (asset?.url) return;
+    if (!isPlaying) return;
+    let raf = 0;
+    let last = performance.now();
+    let t = currentTime;
+    const tick = (now: number) => {
+      const dt = (now - last) / 1000;
+      last = now;
+      t = t + dt;
+      onTimeUpdate(t);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, asset?.url]);
 
   const togglePlay = () => setIsPlaying(!isPlaying);
 
@@ -117,7 +138,7 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
       <div className="flex-1 min-h-[280px] grid place-items-center p-8 relative">
         <div className="absolute inset-0 bg-gradient-vignette pointer-events-none" />
 
-        <div className="relative w-full max-w-5xl aspect-video group">
+        <div className="relative w-full max-w-5xl aspect-video group" style={{ containerType: "inline-size" }}>
           <div className="absolute inset-0 rounded-md bg-black ring-1 ring-white/[0.06] overflow-hidden">
             {asset?.url ? (
               <video
@@ -137,6 +158,24 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
                 </div>
               </div>
             )}
+
+            {/* Motion scene overlay (AI-generated, client-rendered) */}
+            {(() => {
+              const motion = clips.find(c =>
+                c.track === "overlay" &&
+                c.effects?.kind === "motion_scene" &&
+                isMotionScene(c.effects?.scene) &&
+                currentTime >= c.start_time && currentTime <= c.end_time
+              );
+              if (!motion) return null;
+              return (
+                <MotionRenderer
+                  scene={motion.effects.scene}
+                  currentTimeMs={(currentTime - motion.start_time) * 1000}
+                  assets={assets}
+                />
+              );
+            })()}
 
             <div className="absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-black/80 to-transparent pointer-events-none" />
             <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />

@@ -309,7 +309,10 @@ const Timeline = ({
                   const width = ((c.end_time - c.start_time) / duration) * 100;
                   const asset = assets.find(a => a.id === c.asset_id);
                   const isAudio = c.track === "audio";
-                  const label = asset?.name || c.effects?.text || c.effects?.kind || "clip";
+                  const isMotion = c.effects?.kind === "motion_scene";
+                  const label = isMotion
+                    ? `✨ ${c.effects?.description || "AI Motion"}`
+                    : asset?.name || c.effects?.text || c.effects?.kind || "clip";
                   const selected = selectedClipId === c.id;
                   const isColliding = collidingId === c.id;
                   return (

@@ -371,15 +371,20 @@ const Editor = () => {
         };
       } else if (name === "generate_motion_scene") {
         const start = args.start ?? 0;
+        // Coerce/validate the AI scene; fallback to a minimal scene if invalid.
+        const { coerceScene } = await import("@/lib/motionScene");
+        const scene = coerceScene(args.scene, args.description);
+        const sceneDur = scene.durationMs / 1000;
         newClip = {
           id: crypto.randomUUID(),
           track: "overlay",
           start_time: start,
-          end_time: start + (args.duration ?? 5),
+          end_time: start + (args.duration ?? sceneDur),
           asset_id: null,
-          effects: { kind: "motion_scene", description: args.description },
+          effects: { kind: "motion_scene", description: args.description, scene },
         };
         lastMotionClipRef.current = { id: newClip.id, start };
+        toast.success(`🎬 Motion gerada — ${sceneDur.toFixed(1)}s na timeline`);
       } else if (name === "cut_silence") {
         toast.success("Silences marked for removal");
         return;
