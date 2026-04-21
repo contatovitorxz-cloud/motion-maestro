@@ -1,6 +1,5 @@
 import { useDropzone } from "react-dropzone";
-import { Upload, Film, Image as ImageIcon, Music, Wand2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Upload, Film, Image as ImageIcon, Music, Wand2, Plus, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Asset } from "@/pages/Editor";
 
@@ -12,14 +11,14 @@ interface Props {
 }
 
 const presets = [
-  { label: "Lower-third", desc: "Animated name + title" },
-  { label: "Kinetic captions", desc: "Word-by-word reveal" },
-  { label: "Glitch transition", desc: "Quick cut" },
-  { label: "Logo reveal", desc: "Motion intro" },
+  { label: "Lower-third", desc: "Animated name + title", color: "from-track-text/40 to-track-text/10" },
+  { label: "Kinetic captions", desc: "Word-by-word reveal", color: "from-track-captions/40 to-track-captions/10" },
+  { label: "Glitch transition", desc: "Quick cut", color: "from-track-overlay/40 to-track-overlay/10" },
+  { label: "Logo reveal", desc: "Motion intro", color: "from-track-video/40 to-track-video/10" },
 ];
 
 const EditorSidebar = ({ assets, onUpload, onSelectAsset, activeAssetId }: Props) => {
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     accept: { "video/*": [], "image/*": [], "audio/*": [] },
     onDrop: onUpload,
     noClick: true,
@@ -28,33 +27,57 @@ const EditorSidebar = ({ assets, onUpload, onSelectAsset, activeAssetId }: Props
   const iconFor = (t: string) => t === "video" ? Film : t === "image" ? ImageIcon : Music;
 
   return (
-    <aside className="w-64 shrink-0 border-r border-border bg-panel flex flex-col min-h-0">
-      <div {...getRootProps()} className={cn(
-        "p-3 border-b border-border transition-colors",
-        isDragActive && "bg-primary/10"
-      )}>
-        <input {...getInputProps()} />
-        <label className="block">
-          <input
-            type="file" multiple hidden
-            accept="video/*,image/*,audio/*"
-            onChange={(e) => e.target.files && onUpload(Array.from(e.target.files))}
-          />
-          <Button asChild variant="outline" className="w-full justify-start cursor-pointer hover:border-primary/50 hover:bg-primary/5">
-            <span><Upload className="size-4" /> {isDragActive ? "Drop files…" : "Upload media"}</span>
-          </Button>
-        </label>
+    <aside
+      {...getRootProps()}
+      className="w-72 shrink-0 bg-obsidian flex flex-col min-h-0 relative bg-grain"
+    >
+      <input {...getInputProps()} />
+
+      {/* Left divider */}
+      <div className="absolute top-0 left-0 bottom-0 divider-v" />
+
+      {/* Drag overlay */}
+      {isDragActive && (
+        <div className="absolute inset-2 z-50 rounded-xl border-2 border-dashed border-primary bg-primary/10 backdrop-blur-sm grid place-items-center pointer-events-none animate-fade-in">
+          <div className="text-center">
+            <Upload className="size-10 mx-auto mb-2 text-primary animate-pulse" />
+            <p className="text-sm font-bold text-primary">Drop to import</p>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="h-12 shrink-0 relative flex items-center justify-between px-4">
+        <div className="absolute inset-x-0 bottom-0 divider-h" />
+        <div className="flex items-center gap-2">
+          <span className="label-pro">Project</span>
+          <span className="text-[10px] font-mono text-muted-foreground tabular-nums">
+            {assets.length.toString().padStart(2, "0")}
+          </span>
+        </div>
+        <button
+          onClick={open}
+          className="size-7 rounded-md bg-panel-elevated border border-border-strong/40 hover:border-primary/50 hover:bg-primary/10 grid place-items-center transition-cinema group"
+          title="Upload media"
+        >
+          <Plus className="size-3.5 text-muted-foreground group-hover:text-primary transition-cinema" />
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin">
+        {/* Assets */}
         <div className="p-3">
-          <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-            Project assets ({assets.length})
-          </h3>
           {assets.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-6 text-center">No assets yet. Drag files here.</p>
+            <button
+              onClick={open}
+              className="w-full py-12 px-4 rounded-xl border border-dashed border-border-strong/60 hover:border-primary/50 hover:bg-primary/5 transition-cinema group"
+            >
+              <Upload className="size-8 mx-auto mb-2 text-muted-foreground/50 group-hover:text-primary transition-cinema" />
+              <p className="text-xs text-muted-foreground">Drag files here</p>
+              <p className="text-[10px] text-muted-foreground/60 mt-0.5">or click to browse</p>
+            </button>
           ) : (
-            <div className="space-y-1">
+            <div className="grid grid-cols-2 gap-2">
               {assets.map((a) => {
                 const Icon = iconFor(a.type);
                 return (
@@ -62,18 +85,27 @@ const EditorSidebar = ({ assets, onUpload, onSelectAsset, activeAssetId }: Props
                     key={a.id}
                     onClick={() => a.type === "video" && onSelectAsset(a)}
                     className={cn(
-                      "w-full flex items-center gap-2 p-2 rounded text-left text-xs hover:bg-panel-elevated transition-colors",
-                      activeAssetId === a.id && "bg-panel-elevated ring-1 ring-primary/40"
+                      "group relative aspect-video rounded-lg overflow-hidden bg-panel border border-border-strong/40 hover:border-primary/50 transition-cinema",
+                      activeAssetId === a.id && "border-primary ring-2 ring-primary/30"
                     )}
                   >
-                    <div className="size-8 rounded bg-secondary grid place-items-center shrink-0 overflow-hidden">
-                      {a.type === "image" && a.url ? (
-                        <img src={a.url} alt="" className="size-full object-cover" />
-                      ) : (
-                        <Icon className="size-3.5 text-muted-foreground" />
-                      )}
+                    {a.type === "image" && a.url ? (
+                      <img src={a.url} alt={a.name} className="size-full object-cover group-hover:scale-105 transition-cinema" />
+                    ) : a.type === "video" && a.url ? (
+                      <video src={a.url} className="size-full object-cover" muted />
+                    ) : (
+                      <div className="size-full grid place-items-center bg-gradient-primary-soft">
+                        <Icon className="size-6 text-muted-foreground" />
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-obsidian via-transparent to-transparent" />
+                    <div className="absolute bottom-1 left-1.5 right-1.5 flex items-center gap-1">
+                      <Icon className="size-2.5 text-white/70 shrink-0" />
+                      <span className="text-[10px] text-white truncate font-medium">{a.name}</span>
                     </div>
-                    <span className="truncate">{a.name}</span>
+                    {activeAssetId === a.id && (
+                      <div className="absolute top-1 right-1 size-1.5 rounded-full bg-primary shadow-[0_0_8px_hsl(var(--primary))]" />
+                    )}
                   </button>
                 );
               })}
@@ -81,15 +113,30 @@ const EditorSidebar = ({ assets, onUpload, onSelectAsset, activeAssetId }: Props
           )}
         </div>
 
-        <div className="p-3 border-t border-border">
-          <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1">
+        {/* Presets */}
+        <div className="px-3 py-3 relative">
+          <div className="absolute top-0 inset-x-3 divider-h" />
+          <h3 className="label-pro mb-2.5 flex items-center gap-1.5">
             <Wand2 className="size-3" /> Motion presets
           </h3>
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             {presets.map((p) => (
-              <button key={p.label} className="w-full text-left p-2 rounded hover:bg-panel-elevated transition-colors group">
-                <div className="text-xs font-medium group-hover:text-primary">{p.label}</div>
-                <div className="text-[10px] text-muted-foreground">{p.desc}</div>
+              <button
+                key={p.label}
+                className={cn(
+                  "w-full text-left p-2.5 rounded-lg border border-border-strong/30 hover:border-primary/40 transition-cinema group relative overflow-hidden",
+                  "bg-gradient-to-br", p.color
+                )}
+              >
+                <div className="flex items-start gap-2.5 relative">
+                  <div className="size-7 rounded-md bg-obsidian/60 backdrop-blur grid place-items-center shrink-0 group-hover:scale-110 transition-cinema">
+                    <Sparkles className="size-3 text-foreground/80" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold group-hover:text-primary transition-cinema">{p.label}</div>
+                    <div className="text-[10px] text-muted-foreground">{p.desc}</div>
+                  </div>
+                </div>
               </button>
             ))}
           </div>
