@@ -60,15 +60,97 @@ const tools = [
   },
   {
     name: "generate_motion_scene",
-    description: "Generate a brand-new motion graphics scene from a description (Remotion-style).",
+    description:
+      "Generate a brand-new client-rendered motion graphics scene. You MUST return a structured `scene` object that the renderer can play directly. Compose 2–5 layers (text + shapes, optionally one pinned image as background). Use the pinned reference palette if available. Default duration 5000ms. Stagger layer in-delays for cinematic feel.",
     input_schema: {
       type: "object",
       properties: {
-        description: { type: "string" },
-        start: { type: "number" },
-        duration: { type: "number" },
+        description: { type: "string", description: "1-line human description of the scene." },
+        start: { type: "number", description: "start time on overlay track in seconds" },
+        duration: { type: "number", description: "scene duration in seconds (3-8)" },
+        scene: {
+          type: "object",
+          description: "The structured scene to render.",
+          properties: {
+            durationMs: { type: "number" },
+            background: {
+              type: "object",
+              properties: {
+                type: { type: "string", enum: ["solid", "gradient", "image"] },
+                color: { type: "string", description: "for solid" },
+                from: { type: "string", description: "for gradient (hex)" },
+                to: { type: "string", description: "for gradient (hex)" },
+                angle: { type: "number", description: "gradient angle deg" },
+                assetId: { type: "string", description: "for image bg, id of pinned asset" },
+                overlay: { type: "string", description: "rgba overlay over image" },
+              },
+              required: ["type"],
+            },
+            palette: {
+              type: "array",
+              items: { type: "string" },
+              description: "3-5 hex colors derived from references or theme.",
+            },
+            layers: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  kind: { type: "string", enum: ["text", "shape", "image"] },
+                  content: { type: "string", description: "text content" },
+                  assetId: { type: "string", description: "for image layer" },
+                  shape: { type: "string", enum: ["circle", "rect", "blob"] },
+                  x: { type: "number", description: "0-100 (center anchor)" },
+                  y: { type: "number" },
+                  scale: { type: "number" },
+                  rotation: { type: "number" },
+                  opacity: { type: "number", description: "0-1" },
+                  color: { type: "string", description: "hex" },
+                  fontSize: { type: "number", description: "px @1080 ref" },
+                  fontWeight: { type: "number" },
+                  width: { type: "number", description: "% canvas (shape/image)" },
+                  height: { type: "number" },
+                  animation: {
+                    type: "object",
+                    properties: {
+                      in: {
+                        type: "object",
+                        properties: {
+                          type: { type: "string", enum: ["fade", "slideUp", "slideDown", "slideLeft", "slideRight", "scaleIn", "blurIn"] },
+                          durationMs: { type: "number" },
+                          delayMs: { type: "number" },
+                        },
+                        required: ["type", "durationMs", "delayMs"],
+                      },
+                      out: {
+                        type: "object",
+                        properties: {
+                          type: { type: "string", enum: ["fade", "slideUp", "scaleOut", "blurOut"] },
+                          durationMs: { type: "number" },
+                        },
+                        required: ["type", "durationMs"],
+                      },
+                      loop: {
+                        type: "object",
+                        properties: {
+                          type: { type: "string", enum: ["float", "pulse", "spin", "none"] },
+                          amplitude: { type: "number" },
+                          periodMs: { type: "number" },
+                        },
+                      },
+                    },
+                    required: ["in", "out"],
+                  },
+                },
+                required: ["id", "kind", "x", "y", "scale", "rotation", "opacity", "animation"],
+              },
+            },
+          },
+          required: ["durationMs", "background", "layers", "palette"],
+        },
       },
-      required: ["description"],
+      required: ["description", "scene"],
     },
   },
   {
@@ -118,10 +200,10 @@ CRITICAL RULES (Auto mode):
 1. Treat EVERY user message as a complete creative brief, even if it's just 2 words like "iPhone 17 launch" or "motivational quote".
 2. NEVER ask clarifying questions. NEVER ask for confirmation. Just produce.
 3. For EVERY message you MUST call ALL THREE of these tools in the SAME turn (in parallel):
-   a) \`generate_motion_scene\` — describe a cinematic visual scene matching the topic.${pinnedImages.length ? " The description MUST reflect the pinned reference images (palette, subject, composition)." : ""}
+   a) \`generate_motion_scene\` — return a FULL structured \`scene\` object. Compose 3–5 layers: a hero headline (text, large fontSize 80–120, bold, centered around y=45), a sub-line or accent (text or shape, smaller, y=62), and 1–2 decorative shapes (circle/blob) for depth. Background = gradient using the palette. Stagger \`delayMs\` (0, 200, 400, 600). Loop on hero = float amplitude 4. ${pinnedImages.length ? `Use a palette extracted from the pinned reference images. You MAY reference a pinned image as background (background.type='image', assetId=<the asset id>) — assets list is in context.` : "Pick a bold cinematic palette."}
    b) \`generate_narration\` — YOU write a 2-4 sentence cinematic script in the SAME LANGUAGE as the user, then pass it as \`text\`. Do not pass \`voice_id\` (the UI handles voice).
    c) \`add_captions\` — style: "kinetic".
-4. Use \`start: 0\` and \`duration: 8\` for the motion_scene by default — the frontend will auto-stretch it to match the narration length.
+4. Use \`start: 0\` and \`duration: 5\` for the motion_scene by default — the frontend will auto-stretch it to match the narration length.
 5. Reply format (markdown, concise, in the user's language):
    **🎬 Roteiro:** <the script you wrote>
    **🎨 Cena:** <one-line visual description${pinnedImages.length ? ` — mention "inspirado em: ${pinnedImages.map(p => p.name).join(", ")}"` : ""}>
