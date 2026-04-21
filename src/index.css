@@ -233,3 +233,20 @@
     linear-gradient(to bottom, hsl(0 0% 100% / 0.03) 1px, transparent 1px);
   background-size: 80px 80px;
 }
+
+.surface-panel {
+  background-color: hsl(0 0% 100% / 0.02);
+  border: 1px solid hsl(0 0% 100% / 0.06);
+  border-radius: 0.75rem;
+  backdrop-filter: blur(20px);
+}
+
+.bg-vignette {
+  background: radial-gradient(ellipse at center, transparent 55%, hsl(0 0% 0%) 100%);
+}
+
+.wordmark {
+  letter-spacing: -0.04em;
+}
+.wordmark .meu { font-weight: 400; opacity: 0.7; }
+.wordmark .motion { font-weight: 800; }

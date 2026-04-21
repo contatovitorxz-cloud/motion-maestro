@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Sparkles, ChevronLeft, Download, Loader2 } from "lucide-react";
+import { RotatingBorderButton } from "@/components/RotatingBorderButton";
 import EditorSidebar from "@/components/editor/EditorSidebar";
 import PreviewPlayer from "@/components/editor/PreviewPlayer";
 import Timeline from "@/components/editor/Timeline";
@@ -58,7 +59,7 @@ const Editor = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    document.title = `${projectName} — Motiona`;
+    document.title = `${projectName} — meu motion`;
   }, [projectName]);
 
   useEffect(() => {
@@ -440,44 +441,43 @@ const Editor = () => {
 
   return (
     <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
-      <header className="h-14 shrink-0 relative bg-obsidian/80 backdrop-blur-xl flex items-center justify-between px-4">
-        <div className="absolute inset-x-0 bottom-0 divider-h" />
+      <header className="h-14 shrink-0 relative bg-black backdrop-blur-xl flex items-center justify-between px-4 border-b border-white/[0.06]">
         <div className="flex items-center gap-3 min-w-0">
-          <Link to="/dashboard" className="flex items-center justify-center size-8 rounded-md hover:bg-panel-elevated text-muted-foreground hover:text-foreground transition-cinema">
+          <Link to="/dashboard" className="flex items-center justify-center size-8 rounded-md hover:bg-white/5 text-white/60 hover:text-white transition-colors">
             <ChevronLeft className="size-4" />
           </Link>
-          <div className="size-8 rounded-lg bg-gradient-primary grid place-items-center shrink-0">
-            <Sparkles className="size-4 text-primary-foreground" />
+          <div className="size-8 rounded-md bg-black border border-white/10 grid place-items-center shrink-0">
+            <Sparkles className="size-4 text-white" />
           </div>
+          <span className="wordmark text-sm hidden md:inline">
+            <span className="meu text-white/70">meu </span>
+            <span className="motion text-white">motion</span>
+          </span>
+          <div className="h-5 w-px bg-white/10 mx-1 hidden md:block" />
           <Input
             value={projectName}
             onChange={(e) => setProjectName(e.target.value)}
             onBlur={(e) => renameProject(e.target.value)}
-            className="h-8 border-transparent bg-transparent hover:bg-panel-elevated/60 focus:bg-panel-elevated px-3 text-sm font-semibold w-72 tracking-tight"
+            className="h-8 border-transparent bg-transparent hover:bg-white/5 focus:bg-white/5 px-3 text-sm font-semibold w-72 tracking-tight text-white focus-visible:ring-0 focus-visible:ring-offset-0"
           />
         </div>
 
-        <div className="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-3 px-4 py-1.5 rounded-md bg-obsidian border border-border-strong/40">
-          <span className="label-pro">TC</span>
-          <span className="font-mono text-sm font-semibold text-amber tabular-nums">
+        <div className="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-3 px-4 py-1.5 rounded-md bg-white/[0.03] border border-white/10">
+          <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-white/40">TC</span>
+          <span className="font-mono text-sm font-semibold text-white tabular-nums">
             {formatTime(currentTime)}
           </span>
-          <span className="text-muted-foreground/50">/</span>
-          <span className="font-mono text-xs text-muted-foreground tabular-nums">
+          <span className="text-white/30">/</span>
+          <span className="font-mono text-xs text-white/50 tabular-nums">
             {formatTime(duration)}
           </span>
         </div>
 
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            onClick={handleExport}
-            disabled={exporting}
-            className="bg-gradient-primary hover:opacity-90 transition-cinema h-9 px-4 font-semibold"
-          >
+          <RotatingBorderButton onClick={handleExport} disabled={exporting} size="sm">
             {exporting ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
             Export
-          </Button>
+          </RotatingBorderButton>
         </div>
       </header>
 

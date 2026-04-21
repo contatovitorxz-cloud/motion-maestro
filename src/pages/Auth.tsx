@@ -1,13 +1,12 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2, ArrowRight } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { RotatingBorderButton } from "@/components/RotatingBorderButton";
 
 const Auth = () => {
   const navigate = useNavigate();
@@ -18,7 +17,7 @@ const Auth = () => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    document.title = mode === "signin" ? "Sign in — Motiona" : "Create account — Motiona";
+    document.title = mode === "signin" ? "Sign in — meu motion" : "Create account — meu motion";
   }, [mode]);
 
   useEffect(() => {
@@ -50,42 +49,69 @@ const Auth = () => {
   };
 
   return (
-    <div className="min-h-screen grid place-items-center bg-background relative overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-glow pointer-events-none" />
-      <Card className="relative w-full max-w-md p-8 bg-panel border-border shadow-panel">
-        <div className="flex items-center gap-2 mb-6">
-          <div className="size-8 rounded-md bg-gradient-primary grid place-items-center">
-            <Sparkles className="size-4 text-primary-foreground" />
+    <div className="min-h-screen grid place-items-center bg-black relative overflow-hidden px-6">
+      <div className="absolute inset-0 bg-grid-faint pointer-events-none" />
+      <div className="absolute inset-0 bg-vignette pointer-events-none" />
+
+      <div className="relative w-full max-w-md surface-panel p-8 rounded-2xl shadow-elegant">
+        <div className="flex items-center gap-2.5 mb-8">
+          <div className="size-8 rounded-md bg-black border border-white/10 grid place-items-center">
+            <Sparkles className="size-4 text-white" />
           </div>
-          <span className="font-bold">Motiona</span>
+          <span className="wordmark text-base">
+            <span className="meu text-white/70">meu </span>
+            <span className="motion text-white">motion</span>
+          </span>
         </div>
-        <h1 className="text-2xl font-bold mb-1">
+
+        <h1 className="text-3xl font-extrabold tracking-[-0.04em] leading-[1] mb-2 text-white">
           {mode === "signin" ? "Welcome back" : "Create your account"}
         </h1>
-        <p className="text-sm text-muted-foreground mb-6">
+        <p className="text-sm text-white/50 mb-8">
           {mode === "signin" ? "Sign in to continue editing." : "Start creating AI-driven motion videos."}
         </p>
-        <form onSubmit={submit} className="space-y-4">
+
+        <form onSubmit={submit} className="space-y-5">
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@studio.com" />
+            <Label htmlFor="email" className="text-[10px] uppercase tracking-[0.2em] text-white/60 font-semibold">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@studio.com"
+              className="h-11 bg-white/[0.03] border-white/10 text-white placeholder:text-white/30 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-white/30 rounded-lg"
+            />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <Input id="password" type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+            <Label htmlFor="password" className="text-[10px] uppercase tracking-[0.2em] text-white/60 font-semibold">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              required
+              minLength={6}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="h-11 bg-white/[0.03] border-white/10 text-white placeholder:text-white/30 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-white/30 rounded-lg"
+            />
           </div>
-          <Button type="submit" disabled={loading} className="w-full bg-gradient-primary hover:opacity-90">
-            {loading && <Loader2 className="size-4 animate-spin" />}
-            {mode === "signin" ? "Sign in" : "Create account"}
-          </Button>
+          <RotatingBorderButton type="submit" disabled={loading} size="lg" className="w-full">
+            {loading ? <Loader2 className="size-4 animate-spin" /> : <>
+              {mode === "signin" ? "Sign in" : "Create account"}
+              <ArrowRight className="size-4" />
+            </>}
+          </RotatingBorderButton>
         </form>
-        <div className="mt-6 text-center text-sm text-muted-foreground">
+
+        <div className="mt-8 text-center text-sm text-white/50">
           {mode === "signin" ? "No account?" : "Already have one?"}{" "}
-          <button onClick={() => setMode(mode === "signin" ? "signup" : "signin")} className="text-primary hover:underline font-medium">
+          <button onClick={() => setMode(mode === "signin" ? "signup" : "signin")} className="text-white hover:text-white font-semibold underline-offset-4 hover:underline">
             {mode === "signin" ? "Sign up" : "Sign in"}
           </button>
         </div>
-      </Card>
+      </div>
     </div>
   );
 };
