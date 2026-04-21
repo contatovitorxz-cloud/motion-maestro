@@ -48,6 +48,25 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
     }
   }, [isPlaying, videoRef, setIsPlaying, asset]);
 
+  // Fallback playback ticker when there is no <video> element (motion-only)
+  useEffect(() => {
+    if (asset?.url) return;
+    if (!isPlaying) return;
+    let raf = 0;
+    let last = performance.now();
+    let t = currentTime;
+    const tick = (now: number) => {
+      const dt = (now - last) / 1000;
+      last = now;
+      t = t + dt;
+      onTimeUpdate(t);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, asset?.url]);
+
   const togglePlay = () => setIsPlaying(!isPlaying);
 
   const activeOverlays = clips.filter(c =>
