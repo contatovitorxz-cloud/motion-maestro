@@ -123,6 +123,7 @@ export type Database = {
           duration: number | null
           id: string
           name: string
+          scene: Json | null
           status: string
           thumbnail_url: string | null
           updated_at: string
@@ -133,6 +134,7 @@ export type Database = {
           duration?: number | null
           id?: string
           name?: string
+          scene?: Json | null
           status?: string
           thumbnail_url?: string | null
           updated_at?: string
@@ -143,113 +145,13 @@ export type Database = {
           duration?: number | null
           id?: string
           name?: string
+          scene?: Json | null
           status?: string
           thumbnail_url?: string | null
           updated_at?: string
           user_id?: string
         }
         Relationships: []
-      }
-      render_jobs: {
-        Row: {
-          created_at: string
-          error: string | null
-          id: string
-          narration_asset_id: string | null
-          output_path: string | null
-          output_url: string | null
-          pinned_asset_ids: string[]
-          progress: number
-          project_id: string
-          scene: Json
-          status: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          error?: string | null
-          id?: string
-          narration_asset_id?: string | null
-          output_path?: string | null
-          output_url?: string | null
-          pinned_asset_ids?: string[]
-          progress?: number
-          project_id: string
-          scene: Json
-          status?: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          error?: string | null
-          id?: string
-          narration_asset_id?: string | null
-          output_path?: string | null
-          output_url?: string | null
-          pinned_asset_ids?: string[]
-          progress?: number
-          project_id?: string
-          scene?: Json
-          status?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "render_jobs_narration_asset_id_fkey"
-            columns: ["narration_asset_id"]
-            isOneToOne: false
-            referencedRelation: "assets"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "render_jobs_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      renders: {
-        Row: {
-          created_at: string
-          id: string
-          output_url: string | null
-          progress: number | null
-          project_id: string
-          status: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          output_url?: string | null
-          progress?: number | null
-          project_id: string
-          status?: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          output_url?: string | null
-          progress?: number | null
-          project_id?: string
-          status?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "renders_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       timeline_clips: {
         Row: {
