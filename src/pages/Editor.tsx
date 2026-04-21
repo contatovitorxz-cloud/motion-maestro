@@ -495,13 +495,19 @@ const Editor = () => {
             setDuration(newTotal);
             await supabase.from("projects").update({ duration: newTotal }).eq("id", projectId);
           }
-          // If a motion scene was generated this turn, kick off the MP4 render with stretched duration.
+          // If a motion scene was generated this turn, stretch it to match narration.
           if (motionRef) {
             const stretchedScene = {
               ...motionRef.scene,
               durationMs: Math.round(dur * 1000),
             };
-            triggerRender(stretchedScene, data.assetId);
+            const updatedClips = next.map(c =>
+              c.id === motionRef.id
+                ? { ...c, end_time: motionRef.start + dur, effects: { ...c.effects, scene: stretchedScene } }
+                : c
+            );
+            handleCommit(updatedClips);
+            clipsRef.current = updatedClips;
             lastMotionClipRef.current = null;
           }
         } catch (e: any) {
@@ -518,30 +524,22 @@ const Editor = () => {
         toast.success(`AI added: ${name.replace(/_/g, " ")}`);
       }
     } catch (e: any) { toast.error(e.message); }
-  }, [user, projectId, currentTime, duration, handleCommit, selectedVoiceId, triggerRender]);
+  }, [user, projectId, currentTime, duration, handleCommit, selectedVoiceId]);
 
   // Public entry: enqueue actions so they run strictly serially.
   const applyAiAction = useCallback((action: any): Promise<void> => {
     const next = actionQueueRef.current.then(async () => {
       await runAiAction(action);
-      // After the queue drains, if a motion was generated WITHOUT narration in this turn,
-      // trigger render automatically using the motion's own duration.
-      // We detect "drain" by deferring to a microtask and checking the queue identity.
       queueMicrotask(() => {
         if (actionQueueRef.current === next) {
-          const motionRef = lastMotionClipRef.current;
-          if (motionRef && !narrationInTurnRef.current) {
-            triggerRender(motionRef.scene, null);
-            lastMotionClipRef.current = null;
-          }
-          // Reset turn flags for the next user message
+          lastMotionClipRef.current = null;
           narrationInTurnRef.current = false;
         }
       });
     }).catch(() => { /* swallow so chain survives */ });
     actionQueueRef.current = next;
     return next;
-  }, [runAiAction, triggerRender]);
+  }, [runAiAction]);
 
 
   if (authLoading || loading) {
