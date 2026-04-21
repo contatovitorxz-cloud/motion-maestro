@@ -180,7 +180,7 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction }
         {messages.length === 0 && (
           <div className="py-6 animate-fade-in">
             <div className="text-center mb-6">
-              <div className="size-14 mx-auto mb-3 rounded-2xl bg-gradient-primary grid place-items-center shadow-elegant animate-glow-pulse">
+              <div className="size-14 mx-auto mb-3 rounded-2xl bg-gradient-primary grid place-items-center">
                 <Wand2 className="size-6 text-primary-foreground" />
               </div>
               <h3 className="font-bold text-base tracking-tight mb-1">Edit with words.</h3>

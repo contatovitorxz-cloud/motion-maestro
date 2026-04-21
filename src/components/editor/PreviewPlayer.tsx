@@ -133,7 +133,7 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
         <Button
           size="icon"
           onClick={togglePlay}
-          className="size-12 rounded-full bg-gradient-primary hover:opacity-90 transition-cinema shadow-elegant glow-primary"
+          className="size-12 rounded-full bg-gradient-primary hover:opacity-90 transition-cinema"
         >
           {isPlaying ? <Pause className="size-5 fill-current" /> : <Play className="size-5 fill-current ml-0.5" />}
         </Button>
@@ -151,7 +151,7 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
         {/* Center timecode */}
         <div className="flex-1 flex justify-center">
           <div className="flex items-baseline gap-2 px-5 py-1.5 rounded-lg bg-black/40 border border-border-strong/40">
-            <span className="font-mono text-xl font-semibold text-amber-glow tabular-nums tracking-tight">
+            <span className="font-mono text-xl font-semibold text-amber tabular-nums tracking-tight">
               {fmt(currentTime)}
             </span>
             <span className="text-muted-foreground/40 text-sm">/</span>
