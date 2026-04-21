@@ -146,6 +146,7 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, 
             clips: clips.map(c => ({ track: c.track, start: c.start_time, end: c.end_time, effects: c.effects })),
             currentTime,
             selectedVoice: `${selectedVoice.name} (${selectedVoice.tone}) — id ${selectedVoice.id}`,
+            autoMode,
           },
         }),
       });
