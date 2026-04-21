@@ -42,6 +42,9 @@ const Editor = () => {
   const [loading, setLoading] = useState(true);
   const [assets, setAssets] = useState<Asset[]>([]);
   const { clips, reset: resetClips, commit: commitClips, setLive: setLiveClips, undo, redo } = useTimelineHistory([]);
+  // Always-fresh ref to clips so async/serialized handlers don't read stale closures
+  const clipsRef = useRef<Clip[]>([]);
+  useEffect(() => { clipsRef.current = clips; }, [clips]);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [activeAsset, setActiveAsset] = useState<Asset | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
