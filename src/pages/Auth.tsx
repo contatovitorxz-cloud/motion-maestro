@@ -54,10 +54,7 @@ const Auth = () => {
       <div className="absolute inset-0 bg-vignette pointer-events-none" />
 
       <div className="relative w-full max-w-md surface-panel p-8 rounded-2xl shadow-elegant">
-        <div className="flex items-center gap-2.5 mb-8">
-          <div className="size-8 rounded-md bg-black border border-white/10 grid place-items-center">
-            <Sparkles className="size-4 text-white" />
-          </div>
+        <div className="flex items-center mb-8">
           <span className="wordmark text-base">
             <span className="meu text-white/70">meu </span>
             <span className="motion text-white">motion</span>
