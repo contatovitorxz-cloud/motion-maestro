@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Sparkles, Loader2, Wand2, CheckCircle2, Scissors, Captions, Type, Zap, Mic, Volume2 } from "lucide-react";
+import { Send, Sparkles, Loader2, Wand2, CheckCircle2, Scissors, Captions, Type, Zap, Mic, Volume2, Rocket, Lightbulb, Megaphone } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
 import type { Asset, Clip } from "@/pages/Editor";
@@ -35,7 +35,14 @@ const SUGGESTIONS = [
   { icon: Zap, text: "Create a motion opening scene", hint: "Hook intro" },
 ];
 
+const AUTO_SUGGESTIONS = [
+  { icon: Rocket, text: "Lançamento de produto", hint: "Cinematic launch" },
+  { icon: Lightbulb, text: "Tutorial rápido de 30s", hint: "Quick how-to" },
+  { icon: Megaphone, text: "Vídeo motivacional", hint: "Hype reel" },
+];
+
 const VOICE_STORAGE_KEY = "motiona:lastVoice";
+const AUTO_STORAGE_KEY = "motiona:autoMode";
 
 const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, selectedVoiceId, onSelectVoice }: Props) => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -43,6 +50,18 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, 
   const [streaming, setStreaming] = useState(false);
   const [focused, setFocused] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  const [autoMode, setAutoMode] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const v = localStorage.getItem(AUTO_STORAGE_KEY);
+    return v === null ? true : v === "1";
+  });
+  const toggleAuto = () => {
+    setAutoMode(v => {
+      const next = !v;
+      try { localStorage.setItem(AUTO_STORAGE_KEY, next ? "1" : "0"); } catch {}
+      return next;
+    });
+  };
   const previewCacheRef = useRef<Map<string, string>>(new Map());
   const scrollRef = useRef<HTMLDivElement>(null);
   const selectedVoice = getVoice(selectedVoiceId);
