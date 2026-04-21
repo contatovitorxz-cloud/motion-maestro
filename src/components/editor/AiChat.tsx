@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Sparkles, Loader2, Wand2, CheckCircle2, Scissors, Captions, Type, Zap } from "lucide-react";
+import { Send, Sparkles, Loader2, Wand2, CheckCircle2, Scissors, Captions, Type, Zap, Mic, Volume2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
 import type { Asset, Clip } from "@/pages/Editor";
 import { toast } from "sonner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { VOICES, DEFAULT_VOICE_ID, getVoice } from "./voices";
 
 interface Props {
   projectId: string;
@@ -25,11 +27,13 @@ interface Message {
 }
 
 const SUGGESTIONS = [
+  { icon: Mic, text: "Crie uma intro com narração 'Bem-vindo à Motiona'", hint: "Voz + motion" },
   { icon: Scissors, text: "Cut all the silences", hint: "Auto-detect" },
   { icon: Captions, text: "Add kinetic captions for the whole video", hint: "Word reveal" },
-  { icon: Type, text: "Add a lower-third with my name at 0:03", hint: "Identity card" },
   { icon: Zap, text: "Create a motion opening scene", hint: "Hook intro" },
 ];
+
+const VOICE_STORAGE_KEY = "motiona:lastVoice";
 
 const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction }: Props) => {
   const [messages, setMessages] = useState<Message[]>([]);
