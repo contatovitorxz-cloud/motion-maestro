@@ -16,7 +16,7 @@ interface Props {
   assets: Asset[];
   clips: Clip[];
   currentTime: number;
-  onApplyAction: (action: { name: string; args: any }) => void;
+  onApplyAction: (action: { name: string; args: any }) => void | Promise<void>;
   selectedVoiceId: string;
   onSelectVoice: (id: string) => void;
   pinnedAssets?: Asset[];
@@ -215,7 +215,7 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction, 
               if (block?.type === "tool_use" && block.name) {
                 let args: any = {};
                 try { args = block.jsonBuf ? JSON.parse(block.jsonBuf) : {}; } catch {}
-                addAction({ name: block.name, args });
+                await addAction({ name: block.name, args });
               }
               delete blocks[idx];
             } else if (evt.type === "message_stop") {
