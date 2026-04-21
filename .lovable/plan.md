@@ -1,119 +1,64 @@
 
 
-# Editor estilo CapCut — Paridade completa de recursos
+# Conectar Claude (Anthropic) como inteligência do editor
 
-Você quer transformar o editor atual num editor de vídeo completo, com tudo que o CapCut tem. Isso é grande — vou organizar em fases para entregar valor a cada passo, mantendo o visual cinematográfico que já construímos.
+Você quer trocar a IA atual (Lovable AI / Gemini) por Claude da Anthropic, usando sua própria chave de API. Antes de você me mandar a chave, vou organizar como isso vai ser configurado para ela ser usada de forma segura.
 
-## O que o CapCut tem (mapa de recursos)
+## Como vai funcionar
 
 ```text
-┌─ MEDIA ──────────┐  ┌─ PREVIEW ─────────┐  ┌─ INSPECTOR ──┐
-│ Upload           │  │ Player + overlays │  │ Transform    │
-│ Stock library    │  │ Aspect 9:16/16:9 │  │ Speed        │
-│ Stickers/Texto   │  │ Snap to grid     │  │ Volume       │
-│ Efeitos          │  │ Safe zones       │  │ Animações    │
-│ Filtros          │  └───────────────────┘  │ Filtros      │
-│ Transições       │                         │ Máscaras     │
-│ Áudio/Música     │  ┌─ TIMELINE ─────────┐  │ Chroma key   │
-│ Captions         │  │ Multi-track        │  └──────────────┘
-└──────────────────┘  │ Split / Trim       │
-                      │ Drag/drop          │
-                      │ Transições         │
-                      │ Keyframes          │
-                      │ Snap magnético     │
-                      └────────────────────┘
+┌─────────────┐    chama     ┌──────────────────┐   chama   ┌──────────────┐
+│  AiChat.tsx │ ───────────▶ │ edge: chat-edit  │ ────────▶ │  Anthropic   │
+│  (browser)  │              │  (servidor)      │           │  Claude API  │
+└─────────────┘              └──────────────────┘           └──────────────┘
+                                       │
+                                Lê ANTHROPIC_API_KEY
+                                de Lovable Cloud (secret)
 ```
 
-## Plano por fases
+A chave **nunca** vai para o navegador. Fica guardada como secret no backend e só a edge function consegue ler.
 
-Cada fase é entregável e testável sozinha. Você aprova esta visão geral; eu executo a Fase 1 imediatamente e então paramos para você testar antes de seguir.
+## O que vai mudar
 
----
+### 1) Armazenar a chave de forma segura
+- Vou pedir a chave via prompt seguro de secret (`ANTHROPIC_API_KEY`).
+- Você cola a chave no campo seguro — ela não fica em código, não fica em log, e não é visível no projeto depois.
+- Não me envie a chave por mensagem no chat — quando eu apresentar o prompt de secret, cole lá.
 
-### Fase 1 — Edição básica funcional (drag, split, trim, delete)
-Objetivo: poder editar de verdade.
-- Arrastar clipes na timeline para reordenar e mover entre tracks.
-- Split: cortar o clipe na posição do playhead com tecla **S** ou botão tesoura.
-- Trim: arrastar bordas esquerda/direita do clipe para encurtar/estender.
-- Delete: tecla **Delete** ou botão lixeira remove clipe selecionado.
-- Seleção visual (clique seleciona, borda âmbar destacada).
-- Snap magnético: clipes "grudam" em outros clipes e no playhead.
-- Atalhos: Espaço (play/pause), J/K/L (rewind/pause/forward), Setas (frame a frame).
-- Undo/Redo (Ctrl+Z / Ctrl+Shift+Z).
+### 2) Reescrever a edge function `supabase/functions/chat-edit/index.ts`
+- Trocar a chamada do Lovable AI Gateway pela API oficial da Anthropic (`https://api.anthropic.com/v1/messages`).
+- Usar header `x-api-key: ANTHROPIC_API_KEY` e `anthropic-version: 2023-06-01`.
+- Adaptar o formato de mensagens (Anthropic separa `system` em campo próprio, não na lista de messages).
+- Adaptar o formato de **tools** (Anthropic usa `input_schema` em vez de `parameters`, e `tool_use` blocks no streaming em vez de `tool_calls`).
+- Manter streaming via SSE (Anthropic suporta `stream: true` nativamente).
+- Manter as mesmas tools que já existem: `add_text_overlay`, `add_lower_third`, `add_captions`, `cut_silence`, `add_transition`, `generate_motion_scene`.
 
-### Fase 2 — Inspector de clipe (propriedades por clipe)
-Painel flutuante à direita do preview quando um clipe está selecionado.
-- **Transform**: posição X/Y, escala, rotação, opacidade.
-- **Speed**: 0.25x a 4x com curva (linear/ease).
-- **Volume** (clipes de áudio/vídeo): 0–200% + fade in/out.
-- **Reverse**: inverter clipe.
-- **Crop**: recortar área visível.
+### 3) Adaptar o parser do streaming no `AiChat.tsx`
+- Anthropic envia eventos diferentes do OpenAI/Gemini:
+  - `content_block_start` → início de texto ou tool
+  - `content_block_delta` → tokens parciais
+  - `content_block_stop` → fim do bloco
+  - `message_stop` → fim total
+- Vou ajustar o parser para extrair tokens e tool calls nesse formato e disparar as ações na timeline igual antes (sem mudar a UI).
 
-### Fase 3 — Texto, stickers e overlays
-Aba "Text" e "Stickers" na sidebar direita.
-- Adicionar texto com presets (Title, Lower-third, Caption, Subtitle).
-- Editor de texto: fonte, tamanho, cor, contorno, sombra, alinhamento.
-- Animações de entrada/saída (fade, slide, typewriter, bounce).
-- Biblioteca de stickers (emoji + shapes).
-- Texto vira clipe na track de "Text".
+### 4) Escolha do modelo
+Vou usar **`claude-sonnet-4-5`** como padrão (melhor custo-benefício para chat com tool calling agora). Se quiser outro (ex: `claude-opus-4-5` para tarefas mais complexas), me avisa antes de aprovar.
 
-### Fase 4 — Transições, efeitos e filtros
-Sidebar com 3 abas novas: Transitions, Effects, Filters.
-- **Transições** entre clipes: fade, dissolve, slide, zoom, glitch (arrastar entre 2 clipes).
-- **Efeitos**: blur, glow, shake, vignette, glitch, chromatic aberration.
-- **Filtros de cor**: cinematic, B&W, vintage, vivid, cool, warm — preview no thumbnail.
-- Controles de intensidade (0–100%).
+### 5) Tratamento de erros
+- 401 (chave inválida) → mensagem clara: "Chave Anthropic inválida, verifique em Settings".
+- 429 (rate limit) → toast amigável.
+- 529 (overloaded) → retry sugerido.
 
-### Fase 5 — Áudio profissional
-- Track dedicada de áudio com waveform visual.
-- Biblioteca de música/SFX (livre de copyright via API).
-- Volume por clipe + fade in/out + ducking automático.
-- Gravação de voiceover direto no editor (mic do navegador).
-- Detecção de batidas (beat sync) para cortes automáticos.
+## O que NÃO muda
+- A UI do chat fica idêntica (badge "Gemini 3 Flash" será trocado para "Claude Sonnet 4.5").
+- As tools e suas ações na timeline (Phase 1 do CapCut) continuam funcionando do mesmo jeito.
+- Lovable AI continua disponível no projeto, só não é mais usado pelo chat.
 
-### Fase 6 — Captions automáticas (legendas via IA)
-- Botão "Auto-captions" gera legendas do áudio do vídeo.
-- Editor de legenda por linha (texto, timing, estilo).
-- Estilos prontos: TikTok bold, Karaoke, Minimal, Subtitle.
-- Tradução automática (PT/EN/ES).
+## Arquivos afetados
+- `supabase/functions/chat-edit/index.ts` — reescrita para usar Claude.
+- `src/components/editor/AiChat.tsx` — parser SSE adaptado e badge atualizado.
+- Novo secret `ANTHROPIC_API_KEY` no Lovable Cloud.
 
-### Fase 7 — Keyframes e animação
-- Adicionar keyframes em qualquer propriedade do Inspector (posição, escala, opacidade…).
-- Editor de curvas (linear, ease, bezier custom).
-- Visualização dos keyframes na timeline embaixo do clipe.
-
-### Fase 8 — Templates e presets de projeto
-- Galeria de templates prontos (Reels, TikTok, YouTube intro, Vlog).
-- Aplicar template = popular timeline com placeholders.
-- Salvar projeto atual como template pessoal.
-
-### Fase 9 — Export real
-- Render via Remotion (já está no stack) com qualidade 720p/1080p/4K.
-- Formatos: MP4, MOV, GIF.
-- Aspectos: 9:16, 16:9, 1:1, 4:5.
-- Progresso em tempo real + download.
-
-### Fase 10 — Recursos avançados (parecer mágico)
-- **Remoção de fundo (background removal)** com IA.
-- **Chroma key** (greenscreen) manual.
-- **Object tracking**: texto/sticker segue um objeto no vídeo.
-- **AI cut**: corta partes silenciosas automaticamente.
-- **Smart resize**: reenquadra entre 9:16 ↔ 16:9 mantendo o foco.
-
----
-
-## Stack técnico que vou usar
-- **Estado**: Zustand para timeline (clipes, tracks, playhead, seleção, histórico).
-- **Drag/resize**: @dnd-kit + handlers nativos para trim.
-- **Render preview**: Remotion Player (já instalado).
-- **Render final**: Remotion Lambda ou Edge Function com `@remotion/renderer`.
-- **Áudio**: Web Audio API + waveform com `wavesurfer.js`.
-- **Captions IA**: Lovable AI Gateway (Gemini) com prompt de transcrição via áudio.
-- **Background removal / Chroma**: edge function chamando modelo ou WebGPU local.
-- **Persistência**: tabela `projects` no backend já existente — salvar JSON do estado da timeline.
-
-## Como vamos proceder
-Aprovando este plano, eu começo **só pela Fase 1** (edição básica funcional). Quando estiver pronto, você testa, e me diz "vai pra fase 2" — assim você nunca recebe um pacote enorme sem poder validar.
-
-Se preferir outra ordem (ex: começar pelo Inspector ou por Captions), me diga antes de aprovar.
+## Próximo passo
+Aprovando este plano, no início da execução eu vou abrir o prompt de secret pedindo `ANTHROPIC_API_KEY`. Você cola a chave lá (não no chat), eu termino a implementação e a gente testa.
 
