@@ -463,6 +463,8 @@ const Editor = () => {
           clips={clips}
           currentTime={currentTime}
           onApplyAction={applyAiAction}
+          selectedVoiceId={selectedVoiceId}
+          onSelectVoice={handleSelectVoice}
         />
 
         <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-background relative">
@@ -480,7 +482,33 @@ const Editor = () => {
                 setIsPlaying={setIsPlaying}
                 clips={clips}
                 currentTime={currentTime}
+                assets={assets}
               />
+              {(() => {
+                const sel = clips.find(c => c.id === selectedClipId);
+                if (!sel || sel.track !== "audio") return null;
+                const selAsset = assets.find(a => a.id === sel.asset_id) || null;
+                return (
+                  <AudioInspector
+                    clip={sel}
+                    asset={selAsset}
+                    projectId={projectId!}
+                    onClose={() => setSelectedClipId(null)}
+                    onDelete={handleDelete}
+                    onUpdateClip={(next) => {
+                      const updated = clips.map(c => c.id === next.id ? next : c);
+                      handleCommit(updated);
+                    }}
+                    onReplaceAsset={(newAsset, dur) => {
+                      setAssets(prev => [...prev, newAsset]);
+                      const updated = clips.map(c => c.id === sel.id
+                        ? { ...c, asset_id: newAsset.id, end_time: c.start_time + dur, effects: { ...(c.effects||{}), text: newAsset.metadata?.text, voiceId: newAsset.metadata?.voiceId } }
+                        : c);
+                      handleCommit(updated);
+                    }}
+                  />
+                );
+              })()}
               <Timeline
                 clips={clips}
                 duration={Math.max(duration, clips.reduce((m, c) => Math.max(m, c.end_time), 0), 30)}
