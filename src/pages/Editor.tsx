@@ -425,9 +425,13 @@ const Editor = () => {
 
   // Track the most recent motion_scene clip id added in the current AI turn,
   // so when narration arrives we can stretch it to match.
-  const lastMotionClipRef = useRef<{ id: string; start: number } | null>(null);
+  const lastMotionClipRef = useRef<{ id: string; start: number; scene: any } | null>(null);
+  // Serialize AI actions so each one sees the freshest clips from the previous commit.
+  const actionQueueRef = useRef<Promise<void>>(Promise.resolve());
+  // Track if narration was generated in current turn (to know if render was already triggered)
+  const narrationInTurnRef = useRef<boolean>(false);
 
-  const applyAiAction = useCallback(async (action: any) => {
+  const runAiAction = useCallback(async (action: any) => {
     if (!user || !projectId) return;
     const { name, args } = action;
     try {
@@ -464,7 +468,6 @@ const Editor = () => {
         };
       } else if (name === "generate_motion_scene") {
         const start = args.start ?? 0;
-        // Coerce/validate the AI scene; fallback to a minimal scene if invalid.
         const { coerceScene } = await import("@/lib/motionScene");
         const scene = coerceScene(args.scene, args.description);
         const sceneDur = scene.durationMs / 1000;
@@ -476,12 +479,13 @@ const Editor = () => {
           asset_id: null,
           effects: { kind: "motion_scene", description: args.description, scene },
         };
-        lastMotionClipRef.current = { id: newClip.id, start };
+        lastMotionClipRef.current = { id: newClip.id, start, scene };
         toast.success(`🎬 Motion gerada — ${sceneDur.toFixed(1)}s na timeline`);
       } else if (name === "cut_silence") {
         toast.success("Silences marked for removal");
         return;
       } else if (name === "generate_narration") {
+        narrationInTurnRef.current = true;
         const text = (args.text || "").toString().trim();
         if (!text) { toast.error("Narration needs text"); return; }
         const voiceId = args.voice_id || selectedVoiceId;
@@ -503,21 +507,20 @@ const Editor = () => {
           };
           setAssets(prev => [...prev, newAsset]);
 
-          // In Auto mode the motion clip was just added in the same turn —
-          // align the narration to its start and stretch it to match duration.
+          // Read FRESH clips from ref (not closure) since prior actions just committed.
+          const freshClips = clipsRef.current;
           const motionRef = lastMotionClipRef.current;
           let placedStart = start;
-          let nextClips = clips;
+          let nextClips = freshClips;
           if (motionRef) {
             placedStart = motionRef.start;
-            nextClips = clips.map(c =>
+            nextClips = freshClips.map(c =>
               c.id === motionRef.id
                 ? { ...c, end_time: motionRef.start + dur }
                 : c
             );
-            lastMotionClipRef.current = null;
           } else {
-            const lastEnd = clips.filter(c => c.track === "audio").reduce((m, c) => Math.max(m, c.end_time), 0);
+            const lastEnd = freshClips.filter(c => c.track === "audio").reduce((m, c) => Math.max(m, c.end_time), 0);
             placedStart = Math.max(start, lastEnd);
           }
 
@@ -527,7 +530,6 @@ const Editor = () => {
             asset_id: data.assetId,
             effects: { kind: "narration", text, voiceId, volume: 100 },
           };
-          // Stretch any captions clip from this turn to cover full duration
           const totalEnd = placedStart + dur;
           nextClips = nextClips.map(c =>
             c.track === "captions" && c.start_time === 0
@@ -536,6 +538,7 @@ const Editor = () => {
           );
           const next = [...nextClips, audioClip];
           handleCommit(next);
+          clipsRef.current = next; // sync immediately for any next queued action
           setSelectedClipId(audioClip.id);
           toast.success("Narration added to audio track", { id: tId });
           const newTotal = Math.max(duration, audioClip.end_time);
@@ -543,15 +546,14 @@ const Editor = () => {
             setDuration(newTotal);
             await supabase.from("projects").update({ duration: newTotal }).eq("id", projectId);
           }
-          // If a motion scene was generated in the same AI turn, kick off a real MP4 render.
-          const motionWithScene = next.find(c => c.effects?.kind === "motion_scene" && c.effects?.scene);
-          if (motionWithScene) {
-            // Update the scene durationMs to match narration so MP4 length matches voice
+          // If a motion scene was generated this turn, kick off the MP4 render with stretched duration.
+          if (motionRef) {
             const stretchedScene = {
-              ...motionWithScene.effects.scene,
+              ...motionRef.scene,
               durationMs: Math.round(dur * 1000),
             };
             triggerRender(stretchedScene, data.assetId);
+            lastMotionClipRef.current = null;
           }
         } catch (e: any) {
           toast.error(e.message || "Narration failed", { id: tId });
@@ -560,13 +562,38 @@ const Editor = () => {
       }
 
       if (newClip) {
-        const next = [...clips, newClip];
+        const next = [...clipsRef.current, newClip];
         handleCommit(next);
+        clipsRef.current = next; // sync immediately for next queued action
         setSelectedClipId(newClip.id);
         toast.success(`AI added: ${name.replace(/_/g, " ")}`);
       }
     } catch (e: any) { toast.error(e.message); }
-  }, [user, projectId, currentTime, duration, clips, handleCommit, selectedVoiceId, triggerRender]);
+  }, [user, projectId, currentTime, duration, handleCommit, selectedVoiceId, triggerRender]);
+
+  // Public entry: enqueue actions so they run strictly serially.
+  const applyAiAction = useCallback((action: any): Promise<void> => {
+    const next = actionQueueRef.current.then(async () => {
+      await runAiAction(action);
+      // After the queue drains, if a motion was generated WITHOUT narration in this turn,
+      // trigger render automatically using the motion's own duration.
+      // We detect "drain" by deferring to a microtask and checking the queue identity.
+      queueMicrotask(() => {
+        if (actionQueueRef.current === next) {
+          const motionRef = lastMotionClipRef.current;
+          if (motionRef && !narrationInTurnRef.current) {
+            triggerRender(motionRef.scene, null);
+            lastMotionClipRef.current = null;
+          }
+          // Reset turn flags for the next user message
+          narrationInTurnRef.current = false;
+        }
+      });
+    }).catch(() => { /* swallow so chain survives */ });
+    actionQueueRef.current = next;
+    return next;
+  }, [runAiAction, triggerRender]);
+
 
   if (authLoading || loading) {
     return (
