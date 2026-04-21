@@ -411,32 +411,38 @@ const Editor = () => {
         />
 
         <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-background relative">
-          <div className="absolute inset-0 bg-gradient-glow pointer-events-none" />
-          <PreviewPlayer
-            asset={activeAsset}
-            videoRef={videoRef}
-            onTimeUpdate={setCurrentTime}
-            onDurationChange={(d) => setDuration(prev => Math.max(prev, d))}
-            isPlaying={isPlaying}
-            setIsPlaying={setIsPlaying}
-            clips={clips}
-            currentTime={currentTime}
-          />
-          <Timeline
-            clips={clips}
-            duration={Math.max(duration, clips.reduce((m, c) => Math.max(m, c.end_time), 0), 30)}
-            currentTime={currentTime}
-            onSeek={(t) => { setCurrentTime(t); if (videoRef.current) videoRef.current.currentTime = t; }}
-            assets={assets}
-            selectedClipId={selectedClipId}
-            onSelectClip={setSelectedClipId}
-            onLiveUpdate={setLiveClips}
-            onCommit={handleCommit}
-            onSplit={handleSplit}
-            onDelete={handleDelete}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
-          />
+          {clips.length === 0 && assets.filter(a => a.type === "video").length === 0 ? (
+            <EmptyProjectHero onUpload={handleUpload} />
+          ) : (
+            <>
+              <div className="absolute inset-0 bg-gradient-glow pointer-events-none" />
+              <PreviewPlayer
+                asset={activeAsset}
+                videoRef={videoRef}
+                onTimeUpdate={setCurrentTime}
+                onDurationChange={(d) => setDuration(prev => Math.max(prev, d))}
+                isPlaying={isPlaying}
+                setIsPlaying={setIsPlaying}
+                clips={clips}
+                currentTime={currentTime}
+              />
+              <Timeline
+                clips={clips}
+                duration={Math.max(duration, clips.reduce((m, c) => Math.max(m, c.end_time), 0), 30)}
+                currentTime={currentTime}
+                onSeek={(t) => { setCurrentTime(t); if (videoRef.current) videoRef.current.currentTime = t; }}
+                assets={assets}
+                selectedClipId={selectedClipId}
+                onSelectClip={setSelectedClipId}
+                onLiveUpdate={setLiveClips}
+                onCommit={handleCommit}
+                onSplit={handleSplit}
+                onDelete={handleDelete}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+              />
+            </>
+          )}
         </div>
 
         <EditorSidebar
