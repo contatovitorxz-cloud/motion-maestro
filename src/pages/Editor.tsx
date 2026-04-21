@@ -10,6 +10,7 @@ import EditorSidebar from "@/components/editor/EditorSidebar";
 import PreviewPlayer from "@/components/editor/PreviewPlayer";
 import Timeline from "@/components/editor/Timeline";
 import AiChat from "@/components/editor/AiChat";
+import EmptyProjectHero from "@/components/editor/EmptyProjectHero";
 import { useTimelineHistory } from "@/hooks/useTimelineHistory";
 
 export interface Asset {
