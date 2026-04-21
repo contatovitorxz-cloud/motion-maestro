@@ -23,26 +23,28 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
     const v = videoRef.current; if (!v) return;
     const onTime = () => onTimeUpdate(v.currentTime);
     const onDur = () => onDurationChange(v.duration || 0);
+    const onEnded = () => setIsPlaying(false);
     v.addEventListener("timeupdate", onTime);
     v.addEventListener("loadedmetadata", onDur);
-    return () => { v.removeEventListener("timeupdate", onTime); v.removeEventListener("loadedmetadata", onDur); };
-  }, [videoRef, onTimeUpdate, onDurationChange]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA") return;
-      if (e.code === "Space") { e.preventDefault(); togglePlay(); }
-      if (e.key === "j") { if (videoRef.current) videoRef.current.currentTime -= 5; }
-      if (e.key === "l") { if (videoRef.current) videoRef.current.currentTime += 5; }
+    v.addEventListener("ended", onEnded);
+    return () => {
+      v.removeEventListener("timeupdate", onTime);
+      v.removeEventListener("loadedmetadata", onDur);
+      v.removeEventListener("ended", onEnded);
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
+  }, [videoRef, onTimeUpdate, onDurationChange, setIsPlaying]);
 
-  const togglePlay = () => {
+  // Sync isPlaying state -> video element
+  useEffect(() => {
     const v = videoRef.current; if (!v) return;
-    if (v.paused) { v.play(); setIsPlaying(true); } else { v.pause(); setIsPlaying(false); }
-  };
+    if (isPlaying) {
+      v.play().catch(() => setIsPlaying(false));
+    } else {
+      v.pause();
+    }
+  }, [isPlaying, videoRef, setIsPlaying, asset]);
+
+  const togglePlay = () => setIsPlaying(!isPlaying);
 
   const activeOverlays = clips.filter(c =>
     (c.track === "text" || c.track === "captions") &&
@@ -59,12 +61,12 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
   return (
     <div className="flex-1 min-h-0 flex flex-col relative">
       {/* Cinema viewport */}
-      <div className="flex-1 grid place-items-center p-8 min-h-0 relative">
+      <div className="flex-1 min-h-[280px] grid place-items-center p-8 relative">
         <div className="absolute inset-0 bg-gradient-vignette pointer-events-none" />
 
         <div className="relative w-full max-w-5xl aspect-video group">
           {/* Floating monitor shadow */}
-          <div className="absolute inset-0 rounded-md bg-black shadow-monitor ring-1 ring-white/[0.06] overflow-hidden">
+          <div className="absolute inset-0 rounded-md bg-black ring-1 ring-white/[0.06] overflow-hidden">
             {asset?.url ? (
               <video
                 ref={videoRef}
@@ -95,7 +97,7 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
                   key={c.id}
                   className={
                     c.effects?.kind === "lower_third" || c.effects?.kind === "add_lower_third"
-                      ? "self-start max-w-md bg-gradient-primary text-primary-foreground px-4 py-2 rounded-r-lg shadow-elegant animate-slide-in-left font-semibold"
+                      ? "self-start max-w-md bg-gradient-primary text-primary-foreground px-4 py-2 rounded-r-lg animate-slide-in-left font-semibold"
                       : "self-center text-center text-3xl font-bold text-white drop-shadow-lg [text-shadow:0_2px_8px_rgba(0,0,0,0.8)]"
                   }
                 >
@@ -129,7 +131,7 @@ const PreviewPlayer = ({ asset, videoRef, onTimeUpdate, onDurationChange, isPlay
           <SkipBack className="size-4" />
         </Button>
 
-        {/* Play — large glowing */}
+        {/* Play */}
         <Button
           size="icon"
           onClick={togglePlay}

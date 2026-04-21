@@ -190,7 +190,7 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction }
       <div className="h-12 shrink-0 relative flex items-center gap-3 px-4">
         <div className="absolute inset-x-0 bottom-0 divider-h" />
         <div className="relative">
-          <div className="size-7 rounded-lg bg-gradient-primary grid place-items-center shadow-elegant">
+          <div className="size-7 rounded-lg bg-gradient-primary grid place-items-center">
             <Sparkles className="size-3.5 text-primary-foreground" />
           </div>
           <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-success ring-2 ring-obsidian animate-pulse-soft" />
@@ -292,7 +292,7 @@ const AiChat = ({ projectId, userId, assets, clips, currentTime, onApplyAction }
               type="submit"
               size="icon"
               disabled={!input.trim() || streaming}
-              className="size-9 rounded-full bg-gradient-primary hover:opacity-90 disabled:opacity-30 transition-cinema shadow-elegant"
+              className="size-9 rounded-full bg-gradient-primary hover:opacity-90 disabled:opacity-30 transition-cinema"
             >
               {streaming ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
             </Button>

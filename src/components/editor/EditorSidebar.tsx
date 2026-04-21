@@ -104,7 +104,7 @@ const EditorSidebar = ({ assets, onUpload, onSelectAsset, activeAssetId }: Props
                       <span className="text-[10px] text-white truncate font-medium">{a.name}</span>
                     </div>
                     {activeAssetId === a.id && (
-                      <div className="absolute top-1 right-1 size-1.5 rounded-full bg-primary shadow-[0_0_8px_hsl(var(--primary))]" />
+                      <div className="absolute top-1 right-1 size-1.5 rounded-full bg-primary" />
                     )}
                   </button>
                 );
