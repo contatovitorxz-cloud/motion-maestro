@@ -65,7 +65,6 @@ const Editor = () => {
     if (!project) { toast.error("Project not found"); navigate("/dashboard"); return; }
     setProjectName(project.name);
 
-    // signed urls for assets
     const enriched = await Promise.all((assetsData || []).map(async (a: any) => {
       const { data } = await supabase.storage.from("assets").createSignedUrl(a.storage_path, 3600);
       return { ...a, url: data?.signedUrl };
@@ -99,7 +98,6 @@ const Editor = () => {
       if (type === "video" && !activeAsset) setActiveAsset(enriched);
       toast.success(`Uploaded ${file.name}`);
 
-      // auto-add to timeline as a clip
       await supabase.from("timeline_clips").insert({
         project_id: projectId, user_id: user.id,
         track: type === "audio" ? "audio" : "video",
@@ -120,7 +118,6 @@ const Editor = () => {
     setTimeout(() => setExporting(false), 1500);
   };
 
-  // Apply AI tool actions to local timeline state
   const applyAiAction = useCallback(async (action: any) => {
     if (!user || !projectId) return;
     const { name, args } = action;
@@ -160,48 +157,76 @@ const Editor = () => {
   }, [user, projectId, currentTime, duration, loadProject]);
 
   if (authLoading || loading) {
-    return <div className="min-h-screen grid place-items-center bg-background"><Loader2 className="size-6 animate-spin" /></div>;
+    return (
+      <div className="min-h-screen grid place-items-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="size-10 rounded-xl bg-gradient-primary grid place-items-center animate-glow-pulse">
+            <Sparkles className="size-5 text-primary-foreground" />
+          </div>
+          <span className="label-pro">Loading session</span>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
       {/* Topbar */}
-      <header className="h-12 shrink-0 border-b border-border bg-panel flex items-center justify-between px-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <Link to="/dashboard" className="flex items-center gap-2 px-2 py-1 rounded hover:bg-panel-elevated text-sm text-muted-foreground hover:text-foreground">
+      <header className="h-14 shrink-0 relative bg-obsidian/80 backdrop-blur-xl flex items-center justify-between px-4">
+        <div className="absolute inset-x-0 bottom-0 divider-h" />
+        <div className="flex items-center gap-3 min-w-0">
+          <Link to="/dashboard" className="flex items-center justify-center size-8 rounded-md hover:bg-panel-elevated text-muted-foreground hover:text-foreground transition-cinema">
             <ChevronLeft className="size-4" />
           </Link>
-          <div className="size-6 rounded bg-gradient-primary grid place-items-center shrink-0">
-            <Sparkles className="size-3 text-primary-foreground" />
+          <div className="size-8 rounded-lg bg-gradient-primary grid place-items-center shrink-0 shadow-elegant">
+            <Sparkles className="size-4 text-primary-foreground" />
           </div>
           <Input
             value={projectName}
             onChange={(e) => setProjectName(e.target.value)}
             onBlur={(e) => renameProject(e.target.value)}
-            className="h-7 border-transparent bg-transparent hover:bg-panel-elevated focus:bg-panel-elevated px-2 text-sm font-medium w-64"
+            className="h-8 border-transparent bg-transparent hover:bg-panel-elevated/60 focus:bg-panel-elevated px-3 text-sm font-semibold w-72 tracking-tight"
           />
         </div>
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-xs text-muted-foreground tabular-nums">
-            {formatTime(currentTime)} / {formatTime(duration)}
+
+        {/* Center timecode */}
+        <div className="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-3 px-4 py-1.5 rounded-md bg-obsidian border border-border-strong/40">
+          <span className="label-pro">TC</span>
+          <span className="font-mono text-sm font-semibold text-amber tabular-nums">
+            {formatTime(currentTime)}
           </span>
-          <Button size="sm" onClick={handleExport} disabled={exporting} className="bg-gradient-primary hover:opacity-90 h-8">
-            {exporting ? <Loader2 className="size-3 animate-spin" /> : <Download className="size-3" />}
+          <span className="text-muted-foreground/50">/</span>
+          <span className="font-mono text-xs text-muted-foreground tabular-nums">
+            {formatTime(duration)}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={handleExport}
+            disabled={exporting}
+            className="bg-gradient-primary hover:opacity-90 transition-cinema h-9 px-4 font-semibold shadow-elegant"
+          >
+            {exporting ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
             Export
           </Button>
         </div>
       </header>
 
-      {/* 3-column layout */}
-      <div className="flex-1 flex min-h-0">
-        <EditorSidebar
+      {/* 3-column layout: AI Chat (left) | Preview+Timeline (center) | Media (right) */}
+      <div className="flex-1 flex min-h-0 relative">
+        <AiChat
+          projectId={projectId!}
+          userId={user!.id}
           assets={assets}
-          onUpload={handleUpload}
-          onSelectAsset={setActiveAsset}
-          activeAssetId={activeAsset?.id}
+          clips={clips}
+          currentTime={currentTime}
+          onApplyAction={applyAiAction}
         />
 
-        <div className="flex-1 flex flex-col min-w-0 bg-background">
+        <div className="flex-1 flex flex-col min-w-0 bg-background relative">
+          <div className="absolute inset-0 bg-gradient-glow pointer-events-none" />
           <PreviewPlayer
             asset={activeAsset}
             videoRef={videoRef}
@@ -221,13 +246,11 @@ const Editor = () => {
           />
         </div>
 
-        <AiChat
-          projectId={projectId!}
-          userId={user!.id}
+        <EditorSidebar
           assets={assets}
-          clips={clips}
-          currentTime={currentTime}
-          onApplyAction={applyAiAction}
+          onUpload={handleUpload}
+          onSelectAsset={setActiveAsset}
+          activeAssetId={activeAsset?.id}
         />
       </div>
     </div>
@@ -237,7 +260,8 @@ const Editor = () => {
 function formatTime(s: number) {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60).toString().padStart(2, "0");
-  return `${m}:${sec}`;
+  const ms = Math.floor((s % 1) * 100).toString().padStart(2, "0");
+  return `${m.toString().padStart(2, "0")}:${sec}:${ms}`;
 }
 
 export default Editor;
