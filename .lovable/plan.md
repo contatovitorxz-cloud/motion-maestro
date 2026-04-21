@@ -1,99 +1,87 @@
 
 
-# Narração com ElevenLabs — Claude anima, ElevenLabs fala
+# Geração automática: você digita, o vídeo é criado
 
-Você quer que o Claude continue cuidando da animação (motion graphics, layout, timing) e o ElevenLabs entre como **voz** das suas motions. A cada pedido, você decide se escreve o roteiro ou deixa o Claude escrever, escolhe a voz na hora, e o áudio gerado vira uma faixa de áudio na timeline (sincronia manual depois, arrastando).
+Hoje você digita no chat e o Claude pergunta detalhes ou só faz uma parte (só narração, ou só texto). Você quer um modo direto: **digitou → vídeo pronto na timeline**, com cena de motion + narração + legenda + trilha, tudo de uma vez, sem perguntas.
 
 ## Como vai funcionar
 
 ```text
-Você: "Crie uma motion intro 'Bem-vindo à Motiona', com narração"
+Você digita: "lançamento do iPhone 17"
         │
         ▼
-Claude (chat) ──► chama tool generate_narration
-                    └─► Edge function chama ElevenLabs
-                         └─► MP3 sobe pro Storage (bucket assets)
-                              └─► Vira asset + clipe na track de áudio
+Claude (modo Auto) ──► chama em paralelo, sempre:
+   1. generate_motion_scene  (cena visual baseada no tema)
+   2. generate_narration     (roteiro escrito por ele + voz selecionada)
+   3. add_captions           (legenda kinetic sincronizada)
         │
         ▼
-Em paralelo, Claude chama generate_motion_scene normalmente
-        └─► Cena de motion entra na track de vídeo
-        
-Resultado na timeline:
-[Vídeo ────── Motion Scene ──────]
-[Áudio ────── Narração MP3 ──────]
+Timeline em ~5s:
+[Vídeo  ── Motion Scene ──]
+[Áudio  ── Narração MP3 ──]
+[Texto  ── Captions ──────]
 ```
 
 ## O que vou construir
 
-### 1) Nova edge function `generate-narration`
-- Recebe `{ text, voiceId, projectId }`.
-- Valida user (JWT) + input (Zod).
-- Chama `https://api.elevenlabs.io/v1/text-to-speech/{voiceId}?output_format=mp3_44100_128` com `eleven_multilingual_v2` (suporta português).
-- Faz upload do MP3 para o bucket `assets` no caminho `{user_id}/{project_id}/narration-{timestamp}.mp3`.
-- Cria registro em `assets` (type: `audio`, name: primeiras palavras do texto).
-- Retorna `{ assetId, storagePath, duration }` (lê duração via header ou estima por bitrate).
+### 1) Modo "Auto-criar" no chat (toggle)
+- Pill no topo do `AiChat`: **⚡ Auto-criar vídeo** (ligado por padrão).
+- Quando ligado: cada mensagem sua é tratada como **briefing completo**, não como conversa.
+- Quando desligado: comportamento atual (Claude conversa, pergunta, edita pontual).
+- Estado salvo em `localStorage` (`motiona:autoMode`).
 
-### 2) Secret ElevenLabs
-- Vou abrir o prompt para você colar a `ELEVENLABS_API_KEY` (chave já gerada no painel do ElevenLabs).
-- Sem a chave nada disso roda — então esse é o primeiro passo da execução.
+### 2) System prompt "Auto Director" 
+Quando o modo Auto está ligado, o frontend envia um system prompt diferente para o `chat-edit`:
 
-### 3) Nova tool no Claude: `generate_narration`
-- Adicionada em `supabase/functions/chat-edit/index.ts` ao lado das tools existentes.
-- Schema: `{ text: string, voice_id?: string, start?: number }`.
-- Comportamento esperado pelo system prompt: se você não passar texto, Claude pode oferecer escrever um. Se você passar, ele usa direto.
-- Quando o Claude chama a tool, o frontend:
-  1. Mostra "🎙️ Gerando narração com [Voz]…" no chat.
-  2. Chama `supabase.functions.invoke("generate-narration", ...)`.
-  3. Recebe o `assetId` + `duration` e cria um clipe na track `audio` em `start_time = start ?? currentTime`, `end_time = start + duration`.
-  4. Faz `handleCommit(next)` — entra no undo/redo.
+> "Você é um diretor de vídeo automático. Para CADA mensagem do usuário, sem perguntar nada, você DEVE chamar nesta ordem, em paralelo: `generate_motion_scene` (cena visual baseada no tema), `generate_narration` (você escreve um roteiro de 2-4 frases cinematográficas sobre o tema, na mesma língua do usuário) e `add_captions` (estilo kinetic). Não faça perguntas. Não peça confirmação. Apenas execute. Mostre no chat: o roteiro escrito, a descrição visual da cena, e 'Pronto — confira a timeline'."
 
-### 4) Seletor de voz na hora (UI no chat)
-- Acima do input do `AiChat`, adicionar um pill discreto: **🎙 Voz: Sarah ▾**
-- Dropdown com 8 vozes pré-selecionadas (Brian, Sarah, George, Laura, Charlie, Alice, Liam, Matilda) — cada uma com 2 palavras descrevendo o tom.
-- A voz escolhida fica em estado local (`useState`) e é injetada automaticamente como `voice_id` quando o Claude chama `generate_narration`.
-- Persistência leve: salva no `localStorage` (`motiona:lastVoice`) pra lembrar entre sessões.
-- Botão "🔊 Pré-ouvir" ao lado do dropdown que toca uma frase de 3s daquela voz (cache local pra não gastar quota).
+- O frontend escolhe qual system prompt mandar baseado no toggle, sem mudar a edge function.
 
-### 5) Player de áudio na timeline
-- Hoje a track `audio` existe mas não toca nada. Vou adicionar:
-  - Em `PreviewPlayer.tsx`, criar um `<audio>` invisível por clipe de áudio ativo.
-  - Sincronizar `currentTime` e `play/pause` igual ao vídeo principal.
-  - Cortar áudio fora do range `[start_time, end_time]` do clipe.
-- Visual no `Timeline`: clipes de áudio ganham um pequeno waveform fake (barrinhas variando) + ícone 🔊 para diferenciar dos vídeos.
+### 3) Auto-alinhamento das durações
+Hoje cada tool define sua própria duração. No modo Auto vou alinhar:
+- `generate_narration` retorna `duration` real do MP3.
+- Após receber a narração, o frontend **estica/encolhe** o clipe da motion scene para ter a mesma duração da narração (assim o visual acompanha a fala).
+- Captions já cobrem o vídeo todo, então herdam a duração automaticamente.
+- Tudo entra como **um único commit** no histórico, então um Ctrl+Z desfaz o vídeo inteiro.
 
-### 6) Inspector simples para clipes de áudio
-- Quando você clica num clipe de áudio na timeline, aparece um popover lateral mínimo:
-  - Slider de **volume** (0–100%, salvo em `effects.volume`).
-  - Botão **Trocar voz / Regerar** — abre um pequeno modal com o texto original (salvo em `effects.text`), seletor de voz e "Regenerar". Cria um novo asset, substitui o `asset_id` do clipe.
-  - Botão **Remover**.
+### 4) Feedback visual no chat
+Enquanto gera, mostra no chat uma timeline visual de progresso:
+```
+🎬 Criando seu vídeo
+  ✅ Roteiro escrito
+  ⏳ Gerando voz (Sarah)…
+  ✅ Cena de motion criada
+  ⏳ Sincronizando legendas…
+```
+Cada item vira ✅ conforme as tool calls completam. Implementado com state local no `AiChat` que escuta os eventos de tool dispatch.
 
-### 7) Opção "Claude escreve o roteiro"
-- O system prompt do Claude vai ganhar instruções:
-  > "Quando o usuário pedir uma motion com narração mas não fornecer o texto, você pode escrever um roteiro curto (1-3 frases, tom cinematográfico) e chamar `generate_narration` com ele. Sempre mostre o texto final no chat antes de gerar, para o usuário ter contexto."
-- Assim, mesma tool atende os dois fluxos: você dita ou ele inventa.
+### 5) Botão "Refazer" e "Variação"
+Logo abaixo da mensagem "Pronto", dois botões:
+- **🔄 Refazer** — limpa a timeline e roda tudo de novo com o mesmo prompt (Claude pode variar roteiro/visual).
+- **✨ Variação** — mantém o vídeo atual e gera uma alternativa em paralelo na timeline (offset de 2s pra você comparar). 
+
+### 6) Sugestões rápidas no input
+Quando o chat está vazio + modo Auto ligado, mostrar 3 chips clicáveis acima do input:
+- "Lançamento de produto"
+- "Tutorial rápido de 30s"  
+- "Vídeo motivacional"
+
+Clicar preenche o input e envia direto.
 
 ## Detalhes técnicos
-- **Banco**: nenhuma migration nova — `assets.type = 'audio'` e `timeline_clips.track = 'audio'` já são suportados; volume e texto vão em `effects` (jsonb).
-- **Storage**: bucket `assets` já existe e é privado — vamos usar URL assinada (signed URL de 1h) para tocar no `<audio>`.
-- **Custo**: cada narração gasta caracteres da sua quota ElevenLabs. Pré-ouvir usa cache para minimizar.
-- **Modelo TTS**: `eleven_multilingual_v2` (suporta português brasileiro nativamente).
-- **Streaming**: na primeira versão, vamos com geração completa (`/text-to-speech/{id}`) — mais simples, MP3 pronto. Streaming pode entrar depois se você quiser latência menor.
+- **Sem migration** — usa as 3 tools que já existem (`generate_motion_scene`, `generate_narration`, `add_captions`).
+- **Edge function `chat-edit`**: nenhuma mudança de código; só recebe um `mode: "auto"` no contexto e o frontend troca o system prompt antes de mandar (na verdade, vou passar `context.autoMode = true` e a edge function aplica o prompt correto).
+- **Paralelismo**: Claude já pode chamar várias tools no mesmo turn (Anthropic suporta nativamente). Vamos enfatizar isso no prompt.
+- **Sincronia de duração**: novo helper em `Editor.tsx` (`syncClipDurations`) chamado quando todas as 3 tools voltam.
+- **Custo**: cada mensagem dispara ElevenLabs + Claude (motion + captions). Vamos avisar no toggle: "⚡ Cada mensagem gera um vídeo completo — usa créditos ElevenLabs".
 
 ## Arquivos afetados
-- **Novo**: `supabase/functions/generate-narration/index.ts`.
-- **Editado**: `supabase/functions/chat-edit/index.ts` — adicionar tool `generate_narration` + atualizar system prompt.
-- **Editado**: `src/components/editor/AiChat.tsx` — seletor de voz, botão pré-ouvir, handler para a nova tool.
-- **Editado**: `src/pages/Editor.tsx` — `applyAiAction` aprende a lidar com `generate_narration` (cria clipe de áudio via commit).
-- **Editado**: `src/components/editor/PreviewPlayer.tsx` — playback de clipes de áudio sincronizado.
-- **Editado**: `src/components/editor/Timeline.tsx` — visual diferenciado para clipes de áudio.
-- **Novo**: `src/components/editor/AudioInspector.tsx` — popover de volume / regerar / remover.
-
-## Próximo passo da execução
-Aprovando este plano, o **primeiro passo é abrir o prompt do secret `ELEVENLABS_API_KEY`**. Você cola a chave lá (não no chat), e em seguida eu implemento tudo de uma vez.
+- **Editado**: `src/components/editor/AiChat.tsx` — toggle Auto, system prompt switching, painel de progresso, chips de sugestão, botões Refazer/Variação.
+- **Editado**: `supabase/functions/chat-edit/index.ts` — receber `context.autoMode`, aplicar system prompt "Auto Director" condicionalmente.
+- **Editado**: `src/pages/Editor.tsx` — `syncClipDurations` helper, agrupar tool dispatches em um único commit no histórico.
 
 ## O que NÃO entra agora
-- Sincronia automática word-level (karaoke) — fica para uma fase futura quando você pedir.
-- Voice cloning da sua própria voz — possível depois com a API de Voices.
-- Música de fundo automática — outra tool separada, fora deste escopo.
+- Render real do MP4 (Fase 9 separada).
+- Templates pré-definidos (intro/outro/lower-third) — viraria outra feature.
+- Geração de vídeo real por IA tipo Sora/Runway — só motion graphics + áudio + texto.
 
