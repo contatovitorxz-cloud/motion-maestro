@@ -335,6 +335,51 @@ const Editor = () => {
       } else if (name === "cut_silence") {
         toast.success("Silences marked for removal");
         return;
+      } else if (name === "generate_narration") {
+        const text = (args.text || "").toString().trim();
+        if (!text) { toast.error("Narration needs text"); return; }
+        const voiceId = args.voice_id || selectedVoiceId;
+        const start = typeof args.start === "number" ? args.start : currentTime;
+        const tId = toast.loading("🎙️ Generating narration…");
+        try {
+          const { data, error } = await supabase.functions.invoke("generate-narration", {
+            body: { text, voiceId, projectId },
+          });
+          if (error) throw error;
+          if (!data?.assetId) throw new Error("Narration failed");
+          const dur = Number(data.duration) || 4;
+          const newAsset: Asset = {
+            id: data.assetId, type: "audio",
+            name: `🎙️ ${text.slice(0, 50)}`,
+            storage_path: data.storagePath,
+            metadata: { source: "elevenlabs", voiceId, duration: dur, text },
+            url: data.signedUrl,
+          };
+          setAssets(prev => [...prev, newAsset]);
+
+          // Place on audio track avoiding overlap
+          const lastEnd = clips.filter(c => c.track === "audio").reduce((m, c) => Math.max(m, c.end_time), 0);
+          const placedStart = Math.max(start, lastEnd);
+          const audioClip: Clip = {
+            id: crypto.randomUUID(), track: "audio",
+            start_time: placedStart, end_time: placedStart + dur,
+            asset_id: data.assetId,
+            effects: { kind: "narration", text, voiceId, volume: 100 },
+          };
+          const next = [...clips, audioClip];
+          handleCommit(next);
+          setSelectedClipId(audioClip.id);
+          toast.success("Narration added to audio track", { id: tId });
+          // Bump duration if needed
+          const newTotal = Math.max(duration, audioClip.end_time);
+          if (newTotal > duration) {
+            setDuration(newTotal);
+            await supabase.from("projects").update({ duration: newTotal }).eq("id", projectId);
+          }
+        } catch (e: any) {
+          toast.error(e.message || "Narration failed", { id: tId });
+        }
+        return;
       }
 
       if (newClip) {
@@ -344,7 +389,7 @@ const Editor = () => {
         toast.success(`AI added: ${name.replace(/_/g, " ")}`);
       }
     } catch (e: any) { toast.error(e.message); }
-  }, [user, projectId, currentTime, duration, clips, handleCommit]);
+  }, [user, projectId, currentTime, duration, clips, handleCommit, selectedVoiceId]);
 
   if (authLoading || loading) {
     return (
