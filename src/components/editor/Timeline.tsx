@@ -310,6 +310,7 @@ const Timeline = ({
                   const asset = assets.find(a => a.id === c.asset_id);
                   const label = asset?.name || c.effects?.text || c.effects?.kind || "clip";
                   const selected = selectedClipId === c.id;
+                  const isColliding = collidingId === c.id;
                   return (
                     <div
                       key={c.id}
@@ -317,7 +318,8 @@ const Timeline = ({
                       onClick={(e) => { e.stopPropagation(); onSelectClip(c.id); }}
                       className={cn(
                         "absolute top-1 bottom-1 rounded-md text-[10px] flex items-center text-white font-medium overflow-hidden cursor-grab active:cursor-grabbing transition-cinema group/clip",
-                        selected && "ring-2 ring-amber ring-offset-1 ring-offset-obsidian z-10"
+                        selected && "ring-2 ring-amber ring-offset-1 ring-offset-obsidian z-10",
+                        isColliding && "ring-2 ring-destructive z-20"
                       )}
                       style={{
                         left: `${left}%`,
