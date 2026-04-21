@@ -1,105 +1,121 @@
 
-# AI gera o plano da motion mas não renderiza vídeo
+# Render real MP4 do motion via Remotion (server externo) + Auto Mode usando Remotion
 
-Olhei a screenshot e o estado atual: o chat aceita comando, a edge `chat-edit` retorna a "cena" descrita, e até narração roda. Mas não existe nenhum pipeline que pegue essa cena descrita pela AI e **transforme em vídeo na track MOTION**. Hoje a track MOTION fica vazia porque ninguém escreve clip nela. Não tem renderer.
+Você quer que cada mensagem do chat vire um **MP4 baixável de verdade**, com qualidade Remotion, embutindo as imagens fixadas (logo etc.). Hoje o "motion" é só CSS no preview e o Export está stubbed. Vamos trocar o renderer e ligar um worker externo.
 
-## Diagnóstico rápido
+## Arquitetura
 
 ```text
-User → AiChat → chat-edit (Claude) → tool_call: generate_motion_scene
-                                          │
-                                          ▼
-                                    [retorna JSON com descrição]
-                                          │
-                                          ▼
-                                    ❌ NADA acontece com isso
-                                          
-Timeline.MOTION track ──── permanece vazia
-PreviewPlayer ──────────── não tem o que renderizar
+User msg → AiChat → chat-edit (Claude)
+                       │
+                       ▼
+              tool: generate_motion_scene  → JSON da cena (palette, layers, pinned image refs)
+              tool: generate_narration     → MP3 ElevenLabs (já funciona)
+                       │
+                       ▼
+              Editor cria/atualiza um "render job" (Supabase row)
+                       │
+                       ▼
+        Edge function `enqueue-render` → POST pro Remotion Worker (Render.com)
+                       │
+                       ▼
+         Worker (Node + Remotion) baixa narração + imagens → renderiza MP4 → faz upload pro bucket `renders` → marca job como `done`
+                       │
+                       ▼
+        Editor escuta via Realtime → mostra "✓ MP4 pronto" + botão Download
 ```
 
-A skill `remotion-video` que você tem é para renderizar **MP4 offline via CLI no sandbox** — não roda no browser do app. Pra "criar motion" no editor em tempo real precisamos de um renderer **client-side** (canvas/CSS) que leia a descrição da AI.
+## Mudanças
 
-## Plano: motion real e visível, sem Remotion
+### 1) Remotion Worker (novo repo, deploy externo)
+Não fica neste codebase — você vai subir no **Render.com** (ou Fly/Railway). Eu te entrego:
 
-### 1) Definir um schema de "MotionScene" leve
-Em vez do Claude descrever em texto livre, ele retorna JSON estruturado que o front sabe renderizar:
+- `worker/` — projeto Node standalone com:
+  - `package.json` (remotion, @remotion/renderer, @remotion/bundler, express, @supabase/supabase-js)
+  - `src/Root.tsx` — registra a composition `MotionScene`
+  - `src/MotionScene.tsx` — componente Remotion que **lê o mesmo JSON** que o frontend já gera (`MotionScene` de `src/lib/motionScene.ts`). Renderiza:
+    - Background: solid / gradient / **imagem fixada** (download do bucket `assets`)
+    - Layers: text / shape / **image** (logo da pinned image entra aqui)
+    - Animações via `interpolate` + `spring` espelhando os tipos `AnimIn/Out/Loop`
+    - Track de áudio: a narração ElevenLabs sincronizada
+  - `src/server.ts` — Express HTTP:
+    - `POST /render` recebe `{ jobId, scene, narrationUrl, pinnedImageUrls, supabaseUploadPath }`
+    - Renderiza via `renderMedia()` para `/tmp/out.mp4`
+    - Faz upload pro bucket `renders` com service role
+    - `UPDATE render_jobs SET status='done', output_url=<signed>, ...`
+  - `Dockerfile` — base `node:20-bullseye`, instala chromium + ffmpeg
+  - `render.yaml` (blueprint Render.com) — pronto pra deploy
 
-```ts
-type MotionScene = {
-  durationMs: number;          // 3000–8000
-  background: { type: 'gradient'|'solid'|'image', value: string|{from,to,angle}, imageAssetId? };
-  layers: Array<{
-    id: string;
-    kind: 'text'|'shape'|'image';
-    content?: string;          // texto
-    assetId?: string;          // se kind=image
-    shape?: 'circle'|'rect'|'blob';
-    x: number; y: number;      // 0–100 (% do canvas)
-    scale: number; rotation: number; opacity: number;
-    color?: string; fontSize?: number; fontWeight?: number;
-    animation: {
-      in:  { type: 'fade'|'slideUp'|'slideDown'|'slideLeft'|'slideRight'|'scaleIn'|'blurIn', durationMs: number, delayMs: number };
-      out: { type: 'fade'|'slideUp'|'scaleOut'|'blurOut', durationMs: number };
-      loop?: { type: 'float'|'pulse'|'spin', amplitude: number };
-    };
-  }>;
-  palette: string[];           // hex, vinda das pinned images
-};
+Vou te dar o passo-a-passo de deploy: criar conta Render, conectar repo, copiar 3 secrets (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `WORKER_SHARED_SECRET`), pegar a URL pública. Depois você cola essa URL como secret `REMOTION_WORKER_URL` no Lovable Cloud.
+
+### 2) Banco — tabela `render_jobs`
+```sql
+create table render_jobs (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid references projects(id) on delete cascade,
+  user_id uuid references auth.users(id),
+  status text default 'queued', -- queued|rendering|done|error
+  scene jsonb,
+  narration_asset_id uuid references assets(id),
+  pinned_asset_ids uuid[],
+  output_path text,
+  error text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+-- RLS: user só vê os seus
+-- Realtime habilitado
 ```
 
-### 2) Edge function `chat-edit` retorna esse JSON
-- Atualizar a tool `generate_motion_scene` para exigir esse schema (Zod-like na descrição da tool).
-- Sistema prompt instrui: "Você é diretor de motion. Use a paleta das pinned images. Componha 2–5 layers. Duração 4–6s default."
-- Se há pinned images, o Claude (vision) extrai 3–5 cores e devolve em `palette`, e pode referenciar `assetId` de uma pinned image como background ou layer.
+### 3) Nova edge function `enqueue-render`
+- Recebe `{ projectId, scene, narrationAssetId, pinnedAssetIds }`
+- Cria signed URLs (1h) pra narração + cada pinned image
+- Cria row em `render_jobs` (status `queued`)
+- POST pro `REMOTION_WORKER_URL/render` com payload + `WORKER_SHARED_SECRET` (fire-and-forget, não espera)
+- Retorna `{ jobId }` na hora
 
-### 3) Componente novo: `MotionRenderer.tsx` (client-side)
-- Recebe `scene: MotionScene` + `currentTimeMs` + `assets`.
-- Renderiza num `<div>` 16:9 absoluto:
-  - Background: gradient CSS / cor / `<img>` de asset.
-  - Cada layer vira um `<div>` ou `<img>` posicionado com `transform: translate(x%, y%) scale() rotate()`.
-  - Animações calculadas **frame-based** a partir de `currentTimeMs`:
-    - in: progress = clamp((t - delay)/dur, 0, 1) → easing (cubic-bezier inline via JS)
-    - out: progress = clamp((t - (duration - outDur))/outDur, 0, 1)
-    - loop: `Math.sin(t/period) * amplitude`
-- Sem CSS transitions, sem Framer — só math + style inline. Determinístico, segue o playhead.
+### 4) Frontend — substituir preview CSS pelo player Remotion-style
+- **`src/components/editor/MotionRenderer.tsx`**: já existe e usa o mesmo schema. Mantemos pro **preview rápido** (sem download). O Remotion no worker renderiza **o mesmo JSON** com qualidade real.
+- **`src/pages/Editor.tsx`**:
+  - Quando o Auto Mode dispara `generate_motion_scene` + `generate_narration`, depois de ter os dois resultados:
+    - Chamar `supabase.functions.invoke("enqueue-render", { ... })` com a cena, narração, e `pinnedAssetIds`
+    - Mostrar toast "🎥 Renderizando MP4…"
+  - Subscribe Realtime em `render_jobs` desse projeto:
+    - Quando `status='done'`: toast com botão **"Baixar MP4"** + adiciona o vídeo na sidebar como asset.
+    - Quando `status='error'`: toast vermelho com a mensagem.
+- **Botão Export do header**: passa a baixar o último render `done` do projeto (ou dispara um novo se a cena foi editada).
 
-### 4) Integrar no fluxo do editor
-- Quando `chat-edit` retorna scene JSON:
-  - `Editor.tsx` cria um clip novo na track **MOTION** com `{ type: 'motion', start, duration: scene.durationMs/1000, payload: scene }`.
-  - Clip aparece visualmente no Timeline (já tem cor da track).
-- `PreviewPlayer.tsx`:
-  - Quando o playhead está dentro de um clip motion, renderiza `<MotionRenderer scene={clip.payload} currentTimeMs={...} assets={...} />` por cima do vídeo (ou no lugar dele se não há vídeo).
+### 5) Pinned images chegam no Remotion
+- A cena já carrega `assetId` em `background.assetId` e em `layers[i].assetId` (schema do `chat-edit` já suporta).
+- O `enqueue-render` resolve esses ids → signed URLs e injeta no payload.
+- No `MotionScene.tsx` (worker), `<Img src={resolvedUrl}>` desenha a logo no frame que a AI escolheu.
+- No system prompt do `chat-edit` reforço: "Se há pinned images, use **uma** como `background.assetId` OU como `layers[].assetId` (logo) — não invente conteúdo visual quando o usuário fixou referência."
 
-### 5) Mensagem de feedback
-- Toast: "🎬 Motion gerada — 4.5s adicionados à timeline"
-- Card no chat mostra preview estático do primeiro frame (mini thumbnail) + botão "Regenerar variação".
+### 6) UX de pin (pequeno polish, já que você acha)
+- Tooltip no botão 📌 da sidebar: "Fixar pra AI usar na motion (logo, paleta, mood)"
+- Hint na barra de Refs do chat: "AI vai inserir essas imagens na cena"
 
-### 6) Persistência
-- Clips de motion já vão pra coluna `clips` (jsonb) do projeto. `payload` cabe no JSON.
-- Sem migration nova.
+## Fluxo final do usuário
+1. Sobe a logo na sidebar, clica 📌 (vira borda dourada)
+2. Digita no chat: "lançamento do iPhone 17"
+3. Auto Mode dispara: cena com a logo, narração ElevenLabs, legenda
+4. Toast "🎥 Renderizando…" (15-40s dependendo da duração)
+5. Toast verde com **Baixar MP4** ou aparece o `.mp4` na sidebar como asset
 
-## Detalhes técnicos
-
-- **Tipo do clip**: estender `Clip` em `Editor.tsx` para aceitar `track: 'motion'` e campo opcional `motionScene?: MotionScene`.
-- **Timeline.tsx**: já tem track MOTION pintada — só precisa renderizar o block do clip motion (label "✨ AI Motion").
-- **PreviewPlayer.tsx**: adicionar overlay de MotionRenderer condicional ao playhead estar dentro de um motion clip.
-- **chat-edit/index.ts**: trocar a tool `generate_motion_scene` para retornar schema estrito; system prompt atualizado para emitir JSON válido. Vision continua usando pinned images pra paleta.
-- **Easings**: utilitário `src/lib/easing.ts` com `easeOutCubic`, `easeInOutCubic`, `easeOutBack`.
-- **Performance**: render só dos layers visíveis na janela de tempo do clip. Sem re-render por frame se nada mudou (memo por currentTimeMs arredondado a 16ms).
-
-## Arquivos
-- **Novo**: `src/components/editor/MotionRenderer.tsx` — renderer client-side puro.
-- **Novo**: `src/lib/motionScene.ts` — tipos `MotionScene` + validação leve.
-- **Novo**: `src/lib/easing.ts` — funções de easing.
-- **Editado**: `supabase/functions/chat-edit/index.ts` — tool schema estrita + prompt de "diretor de motion JSON".
-- **Editado**: `src/pages/Editor.tsx` — ao receber scene, criar clip na track motion + tipo Clip estendido.
-- **Editado**: `src/components/editor/AiChat.tsx` — quando resposta traz motionScene, dispara callback `onMotionGenerated(scene)`.
-- **Editado**: `src/components/editor/PreviewPlayer.tsx` — overlay MotionRenderer quando playhead em clip motion.
-- **Editado**: `src/components/editor/Timeline.tsx` — render visual do clip motion (label + ícone).
+## Secrets que preciso pedir DEPOIS de você criar o worker
+- `REMOTION_WORKER_URL` — URL pública do Render.com
+- `WORKER_SHARED_SECRET` — string aleatória (eu gero, você cola no Render também)
 
 ## O que NÃO entra agora
-- Export pra MP4 (precisa de Remotion server-side, fica pra Fase 9).
-- Edição manual de keyframes.
-- Áudio sincronizado dentro da motion (ainda usa as tracks separadas).
-- Mais de 1 motion clip ativo ao mesmo tempo (uma por trecho).
+- Render incremental/preview de baixa qualidade (sempre 1080p)
+- Edição manual do MP4 depois de renderizado (re-renderiza inteiro)
+- Múltiplos jobs paralelos (1 por projeto enquanto não terminar)
+- Custo de GPU — vai rodar headless CPU no Render starter ($7/mês). Pra escalar, depois.
+
+## Ordem de execução
+1. Migration `render_jobs` + RLS + realtime
+2. Criar pasta `worker/` no repo (você decide se publica em outro repo Git ou usa monorepo) com Dockerfile + Remotion + Express
+3. Edge function `enqueue-render`
+4. Frontend: hook Realtime + botão download + integração no Auto Mode
+5. Polish do pin (tooltip)
+6. Eu te entrego o passo-a-passo do Render.com e peço os 2 secrets quando você tiver a URL
