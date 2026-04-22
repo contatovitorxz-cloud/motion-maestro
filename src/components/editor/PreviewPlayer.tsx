@@ -1,5 +1,5 @@
 import { forwardRef, RefObject, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Maximize2, Volume2, Film, VolumeX } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Maximize2, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -20,9 +20,14 @@ interface Props {
 }
 
 export interface PreviewPlayerHandle {
-  /** Returns the Remotion player handle for the active motion scene (if any). */
   getRemotionHandle: () => RemotionPlayerHandle | null;
 }
+
+const fmt = (s: number) => {
+  const m = Math.floor(s / 60).toString().padStart(2, "0");
+  const sec = Math.floor(s % 60).toString().padStart(2, "0");
+  return `${m}:${sec}`;
+};
 
 const PreviewPlayer = forwardRef<PreviewPlayerHandle, Props>(({
   asset, videoRef, onTimeUpdate, onDurationChange, isPlaying, setIsPlaying, currentTime, clips, assets,
@@ -30,12 +35,12 @@ const PreviewPlayer = forwardRef<PreviewPlayerHandle, Props>(({
   const [volume, setVolume] = useState(100);
   const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
   const remotionRef = useRef<RemotionPlayerHandle>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
   useImperativeHandle(ref, () => ({
     getRemotionHandle: () => remotionRef.current,
   }), []);
 
-  // Latest motion_scene clip on the timeline (drives the Remotion preview)
   const motionClip = useMemo(
     () =>
       [...clips]
@@ -64,17 +69,12 @@ const PreviewPlayer = forwardRef<PreviewPlayerHandle, Props>(({
     };
   }, [videoRef, onTimeUpdate, onDurationChange, setIsPlaying]);
 
-  // Sync isPlaying state -> video element
   useEffect(() => {
     const v = videoRef.current; if (!v) return;
-    if (isPlaying) {
-      v.play().catch(() => setIsPlaying(false));
-    } else {
-      v.pause();
-    }
+    if (isPlaying) v.play().catch(() => setIsPlaying(false));
+    else v.pause();
   }, [isPlaying, videoRef, setIsPlaying, asset]);
 
-  // Sync isPlaying -> Remotion player
   useEffect(() => {
     const p = remotionRef.current?.player;
     if (!p) return;
@@ -82,7 +82,6 @@ const PreviewPlayer = forwardRef<PreviewPlayerHandle, Props>(({
     else p.pause();
   }, [isPlaying, motionClip?.id]);
 
-  // Drive currentTime forward when there is no main video element
   useEffect(() => {
     if (asset?.url) return;
     if (!isPlaying) return;
@@ -103,12 +102,15 @@ const PreviewPlayer = forwardRef<PreviewPlayerHandle, Props>(({
 
   const togglePlay = () => setIsPlaying(!isPlaying);
 
-  const activeOverlays = clips.filter(c =>
-    (c.track === "text" || c.track === "captions") &&
-    currentTime >= c.start_time && currentTime <= c.end_time
+  const activeCaption = clips.find(
+    (c) =>
+      (c.track === "captions" || c.track === "text") &&
+      currentTime >= c.start_time &&
+      currentTime <= c.end_time &&
+      (c.effects?.text || c.effects?.kind === "captions")
   );
 
-  const audioClips = clips.filter(c => c.track === "audio" && c.asset_id);
+  const audioClips = clips.filter((c) => c.track === "audio" && c.asset_id);
 
   useEffect(() => {
     audioClips.forEach((clip) => {
@@ -125,31 +127,27 @@ const PreviewPlayer = forwardRef<PreviewPlayerHandle, Props>(({
         }
         if (isPlaying && el.paused) el.play().catch(() => {});
         if (!isPlaying && !el.paused) el.pause();
-      } else {
-        if (!el.paused) el.pause();
+      } else if (!el.paused) {
+        el.pause();
       }
     });
   }, [currentTime, isPlaying, audioClips, volume]);
 
   useEffect(() => {
-    if (!isPlaying) {
-      audioRefs.current.forEach((el) => { if (!el.paused) el.pause(); });
-    }
+    if (!isPlaying) audioRefs.current.forEach((el) => { if (!el.paused) el.pause(); });
   }, [isPlaying]);
 
-  const fmt = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60).toString().padStart(2, "0");
-    const ms = Math.floor((s % 1) * 100).toString().padStart(2, "0");
-    return `${m.toString().padStart(2, "0")}:${sec}:${ms}`;
-  };
-
   const showRemotion = !!motionClip && !asset?.url;
+  const totalDuration = asset && videoRef.current?.duration
+    ? videoRef.current.duration
+    : motionClip ? motionClip.effects.scene.durationMs / 1000
+    : Math.max(...clips.map(c => c.end_time), 0) || 60;
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col relative">
+    <div className="flex-1 min-h-0 flex flex-col" style={{ backgroundColor: "#0a0a0a" }}>
+      {/* hidden audio elements */}
       {audioClips.map((c) => {
-        const a = assets.find(x => x.id === c.asset_id);
+        const a = assets.find((x) => x.id === c.asset_id);
         if (!a?.url) return null;
         return (
           <audio
@@ -165,70 +163,89 @@ const PreviewPlayer = forwardRef<PreviewPlayerHandle, Props>(({
         );
       })}
 
-      <div className="flex-1 min-h-[280px] grid place-items-center p-8 relative">
-        <div className="absolute inset-0 bg-gradient-vignette pointer-events-none" />
-
-        <div className="relative w-full max-w-5xl aspect-video group" style={{ containerType: "inline-size" }}>
-          <div className="absolute inset-0 rounded-md bg-black ring-1 ring-white/[0.06] overflow-hidden">
-            {asset?.url ? (
-              <video
-                ref={videoRef}
-                src={asset.url}
-                className="w-full h-full object-contain bg-black"
-                onClick={togglePlay}
+      {/* PREVIEW área */}
+      <div
+        className="flex-1 flex items-center justify-center p-6 min-h-0"
+        style={{ backgroundColor: "#050505" }}
+      >
+        <div
+          ref={wrapperRef}
+          className="relative w-full max-w-[900px] aspect-video rounded-lg overflow-hidden"
+          style={{
+            backgroundColor: "#000",
+            boxShadow: "0 10px 40px rgba(0,0,0,0.6)",
+          }}
+        >
+          {asset?.url ? (
+            <video
+              ref={videoRef}
+              src={asset.url}
+              className="w-full h-full object-contain bg-black"
+              onClick={togglePlay}
+            />
+          ) : showRemotion ? (
+            <RemotionPlayer
+              ref={remotionRef}
+              scene={motionClip!.effects.scene}
+              assets={assets}
+              className="w-full h-full"
+            />
+          ) : (
+            <>
+              {/* mockup-style placeholder */}
+              <div
+                className="absolute inset-0"
+                style={{ background: "radial-gradient(ellipse at 40% 40%, #1a1530 0%, #050505 75%)" }}
               />
-            ) : showRemotion ? (
-              <RemotionPlayer
-                ref={remotionRef}
-                scene={motionClip!.effects.scene}
-                assets={assets}
-                className="w-full h-full"
+              <div
+                className="absolute top-0 bottom-0 left-0"
+                style={{
+                  width: "33%",
+                  opacity: 0.3,
+                  background: "linear-gradient(90deg, rgba(255,182,39,0.15), transparent)",
+                }}
               />
-            ) : (
-              <div className="w-full h-full grid place-items-center text-muted-foreground bg-obsidian">
+              <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center">
-                  <div className="size-16 mx-auto mb-4 rounded-2xl bg-gradient-primary-soft border border-primary/20 grid place-items-center">
-                    <Film className="size-8 text-primary/60" />
+                  <div
+                    className="size-[72px] mx-auto mb-3 rounded-2xl grid place-items-center"
+                    style={{ background: "linear-gradient(135deg,#7B2CBF,#FFB627)" }}
+                  >
+                    <Play size={30} fill="#000" color="#000" style={{ marginLeft: 3 }} />
                   </div>
-                  <p className="text-sm font-medium">No clip loaded</p>
-                  <p className="text-xs text-muted-foreground/70 mt-1">Upload a video or describe a motion in the chat</p>
+                  <div className="text-[10px] font-mono text-white/30 tracking-[0.2em]">PREVIEW</div>
                 </div>
               </div>
-            )}
+            </>
+          )}
 
-            <div className="absolute inset-x-0 top-0 h-8 bg-gradient-to-b from-black/80 to-transparent pointer-events-none" />
-            <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
-
-            <div className="absolute inset-0 pointer-events-none flex flex-col justify-end p-10 gap-2">
-              {activeOverlays.map((c) => (
-                <div
-                  key={c.id}
-                  className={
-                    c.effects?.kind === "lower_third" || c.effects?.kind === "add_lower_third"
-                      ? "self-start max-w-md bg-gradient-primary text-primary-foreground px-4 py-2 rounded-r-lg animate-slide-in-left font-semibold"
-                      : "self-center text-center text-3xl font-bold text-white drop-shadow-lg [text-shadow:0_2px_8px_rgba(0,0,0,0.8)]"
-                  }
-                >
-                  {c.effects?.text || (c.effects?.kind === "captions" ? "[ live captions ]" : "")}
-                </div>
-              ))}
+          {/* Caption overlay (estilo mockup) */}
+          {activeCaption && (
+            <div
+              className="absolute left-1/2 -translate-x-1/2 font-black tracking-wide whitespace-nowrap"
+              style={{
+                bottom: "12%",
+                fontSize: 22,
+                color: "#FFB627",
+                textShadow: "-2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000",
+              }}
+            >
+              {(activeCaption.effects?.text || "[ legendas ao vivo ]").toString().toUpperCase()}
             </div>
+          )}
 
-            {(asset || motionClip) && (
-              <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2 py-1 rounded bg-black/60 backdrop-blur-sm border border-white/10">
-                <span className="size-1.5 rounded-full bg-destructive animate-pulse" />
-                <span className="text-[9px] font-mono uppercase tracking-widest text-white/80">
-                  {motionClip && !asset?.url ? "MOTION" : "PGM"}
-                </span>
-              </div>
-            )}
+          {/* Timecode TL canto */}
+          <div className="absolute top-3 left-3 text-[10px] font-mono text-white/40">
+            {fmt(currentTime)}
           </div>
         </div>
       </div>
 
-      <div className="h-16 shrink-0 relative bg-obsidian/90 backdrop-blur-xl flex items-center px-6 gap-4">
-        <div className="absolute inset-x-0 top-0 divider-h" />
-
+      {/* CONTROLES */}
+      <div
+        className="h-12 shrink-0 flex items-center justify-center gap-4 border-t"
+        style={{ borderColor: "rgba(255,255,255,0.06)" }}
+      >
         <Button
           size="icon"
           variant="ghost"
@@ -236,48 +253,48 @@ const PreviewPlayer = forwardRef<PreviewPlayerHandle, Props>(({
             if (videoRef.current) videoRef.current.currentTime = 0;
             const p = remotionRef.current?.player;
             if (p) p.seekTo(0);
+            onTimeUpdate(0);
           }}
-          className="size-9 hover:bg-panel-elevated text-muted-foreground hover:text-foreground transition-cinema"
+          className="size-8 hover:bg-white/[0.05]"
         >
-          <SkipBack className="size-4" />
+          <SkipBack className="size-4 text-white/60" />
         </Button>
 
-        <Button
-          size="icon"
+        <button
+          type="button"
           onClick={togglePlay}
-          className="size-12 rounded-full bg-gradient-primary hover:opacity-90 transition-cinema"
+          className="size-9 rounded-full grid place-items-center"
+          style={{ backgroundColor: "white" }}
         >
-          {isPlaying ? <Pause className="size-5 fill-current" /> : <Play className="size-5 fill-current ml-0.5" />}
-        </Button>
+          {isPlaying
+            ? <Pause className="size-3.5" color="#000" />
+            : <Play className="size-3.5 ml-0.5" fill="#000" color="#000" />}
+        </button>
 
         <Button
           size="icon"
           variant="ghost"
           onClick={() => videoRef.current && (videoRef.current.currentTime += 10)}
-          className="size-9 hover:bg-panel-elevated text-muted-foreground hover:text-foreground transition-cinema"
+          className="size-8 hover:bg-white/[0.05]"
         >
-          <SkipForward className="size-4" />
+          <SkipForward className="size-4 text-white/60" />
         </Button>
 
-        <div className="flex-1 flex justify-center">
-          <div className="flex items-baseline gap-2 px-5 py-1.5 rounded-lg bg-black/40 border border-border-strong/40">
-            <span className="font-mono text-xl font-semibold text-amber tabular-nums tracking-tight">
-              {fmt(currentTime)}
-            </span>
-            <span className="text-muted-foreground/40 text-sm">/</span>
-            <span className="font-mono text-xs text-muted-foreground tabular-nums">
-              {fmt(asset && videoRef.current?.duration ? videoRef.current.duration : (motionClip ? motionClip.effects.scene.durationMs / 1000 : 0))}
-            </span>
-          </div>
+        <div className="w-px h-4" style={{ backgroundColor: "rgba(255,255,255,0.1)" }} />
+
+        <div className="text-xs font-mono text-white/70 tabular-nums">
+          {fmt(currentTime)} <span className="text-white/30">/ {fmt(totalDuration)}</span>
         </div>
+
+        <div className="w-px h-4" style={{ backgroundColor: "rgba(255,255,255,0.1)" }} />
 
         <Popover>
           <PopoverTrigger asChild>
-            <Button size="icon" variant="ghost" className="size-9 hover:bg-panel-elevated text-muted-foreground hover:text-foreground transition-cinema">
-              {volume === 0 ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
+            <Button size="icon" variant="ghost" className="size-8 hover:bg-white/[0.05]">
+              {volume === 0 ? <VolumeX className="size-4 text-white/60" /> : <Volume2 className="size-4 text-white/60" />}
             </Button>
           </PopoverTrigger>
-          <PopoverContent side="top" className="w-12 h-32 p-3 bg-obsidian border-border-strong/60">
+          <PopoverContent side="top" className="w-12 h-32 p-3" style={{ backgroundColor: "#0a0a0a", borderColor: "rgba(255,255,255,0.1)" }}>
             <Slider
               orientation="vertical"
               value={[volume]}
@@ -294,10 +311,10 @@ const PreviewPlayer = forwardRef<PreviewPlayerHandle, Props>(({
         <Button
           size="icon"
           variant="ghost"
-          onClick={() => videoRef.current?.requestFullscreen()}
-          className="size-9 hover:bg-panel-elevated text-muted-foreground hover:text-foreground transition-cinema"
+          onClick={() => wrapperRef.current?.requestFullscreen()}
+          className="size-8 hover:bg-white/[0.05]"
         >
-          <Maximize2 className="size-4" />
+          <Maximize2 className="size-4 text-white/60" />
         </Button>
       </div>
     </div>

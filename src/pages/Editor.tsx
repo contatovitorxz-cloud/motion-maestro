@@ -1,17 +1,15 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Sparkles, ChevronLeft, Download, Loader2 } from "lucide-react";
-import { RotatingBorderButton } from "@/components/RotatingBorderButton";
-import EditorSidebar from "@/components/editor/EditorSidebar";
+import { Sparkles } from "lucide-react";
 import PreviewPlayer, { type PreviewPlayerHandle } from "@/components/editor/PreviewPlayer";
 import Timeline from "@/components/editor/Timeline";
 import AiChat from "@/components/editor/AiChat";
-import EmptyProjectHero from "@/components/editor/EmptyProjectHero";
 import AudioInspector from "@/components/editor/AudioInspector";
+import TopBar from "@/components/editor/TopBar";
+import ImportDrawer from "@/components/editor/ImportDrawer";
 import { DEFAULT_VOICE_ID } from "@/components/editor/voices";
 import { useTimelineHistory } from "@/hooks/useTimelineHistory";
 import { exportPlayerToWebm, downloadBlob } from "@/lib/exportVideo";
@@ -542,62 +540,33 @@ const Editor = () => {
   }, [runAiAction]);
 
 
+  const [importOpen, setImportOpen] = useState(false);
+
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen grid place-items-center bg-background">
+      <div className="min-h-screen grid place-items-center" style={{ backgroundColor: "#0a0a0a" }}>
         <div className="flex flex-col items-center gap-3">
-          <div className="size-10 rounded-xl bg-gradient-primary grid place-items-center animate-glow-pulse">
-            <Sparkles className="size-5 text-primary-foreground" />
+          <div className="size-10 rounded-xl grid place-items-center animate-pulse" style={{ background: "linear-gradient(135deg,#7B2CBF,#FFB627)" }}>
+            <Sparkles className="size-5 text-black" />
           </div>
-          <span className="label-pro">Loading session</span>
+          <span className="text-[10px] uppercase tracking-widest text-white/50 font-semibold">Carregando</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
-      <header className="h-14 shrink-0 relative bg-black backdrop-blur-xl flex items-center justify-between px-4 border-b border-white/[0.06]">
-        <div className="flex items-center gap-3 min-w-0">
-          <Link to="/dashboard" className="flex items-center justify-center size-8 rounded-md hover:bg-white/5 text-white/60 hover:text-white transition-colors">
-            <ChevronLeft className="size-4" />
-          </Link>
-          <div className="size-8 rounded-md bg-black border border-white/10 grid place-items-center shrink-0">
-            <Sparkles className="size-4 text-white" />
-          </div>
-          <span className="wordmark text-sm hidden md:inline">
-            <span className="meu text-white/70">meu </span>
-            <span className="motion text-white">motion</span>
-          </span>
-          <div className="h-5 w-px bg-white/10 mx-1 hidden md:block" />
-          <Input
-            value={projectName}
-            onChange={(e) => setProjectName(e.target.value)}
-            onBlur={(e) => renameProject(e.target.value)}
-            className="h-8 border-transparent bg-transparent hover:bg-white/5 focus:bg-white/5 px-3 text-sm font-semibold w-72 tracking-tight text-white focus-visible:ring-0 focus-visible:ring-offset-0"
-          />
-        </div>
+    <div className="h-screen flex flex-col text-white overflow-hidden" style={{ backgroundColor: "#0a0a0a" }}>
+      <TopBar
+        projectName={projectName}
+        onRename={renameProject}
+        onOpenImport={() => setImportOpen(true)}
+        onExport={handleExport}
+        exporting={exporting}
+      />
 
-        <div className="absolute left-1/2 -translate-x-1/2 hidden md:flex items-center gap-3 px-4 py-1.5 rounded-md bg-white/[0.03] border border-white/10">
-          <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-white/40">TC</span>
-          <span className="font-mono text-sm font-semibold text-white tabular-nums">
-            {formatTime(currentTime)}
-          </span>
-          <span className="text-white/30">/</span>
-          <span className="font-mono text-xs text-white/50 tabular-nums">
-            {formatTime(duration)}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <RotatingBorderButton onClick={handleExport} disabled={exporting} size="sm">
-            {exporting ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
-            Export
-          </RotatingBorderButton>
-        </div>
-      </header>
-
-      <div className="flex-1 flex min-h-0 relative">
+      <div className="flex-1 flex min-h-0">
+        {/* Chat — coluna esquerda */}
         <AiChat
           projectId={projectId!}
           userId={user!.id}
@@ -606,82 +575,81 @@ const Editor = () => {
           currentTime={currentTime}
           onApplyAction={applyAiAction}
           selectedVoiceId={selectedVoiceId}
-          onSelectVoice={handleSelectVoice}
           pinnedAssets={pinnedAssets}
-          onTogglePin={handleTogglePin}
         />
 
-        <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-background relative">
-          {clips.length === 0 && assets.filter(a => a.type === "video").length === 0 ? (
-            <EmptyProjectHero onUpload={handleUpload} />
-          ) : (
-            <>
-              <div className="absolute inset-0 bg-gradient-glow pointer-events-none" />
-              <PreviewPlayer
-                ref={previewPlayerRef}
-                asset={activeAsset}
-                videoRef={videoRef}
-                onTimeUpdate={setCurrentTime}
-                onDurationChange={(d) => setDuration(prev => Math.max(prev, d))}
-                isPlaying={isPlaying}
-                setIsPlaying={setIsPlaying}
-                clips={clips}
-                currentTime={currentTime}
-                assets={assets}
-              />
-              {(() => {
-                const sel = clips.find(c => c.id === selectedClipId);
-                if (!sel || sel.track !== "audio") return null;
-                const selAsset = assets.find(a => a.id === sel.asset_id) || null;
-                return (
-                  <AudioInspector
-                    clip={sel}
-                    asset={selAsset}
-                    projectId={projectId!}
-                    onClose={() => setSelectedClipId(null)}
-                    onDelete={handleDelete}
-                    onUpdateClip={(next) => {
-                      const updated = clips.map(c => c.id === next.id ? next : c);
-                      handleCommit(updated);
-                    }}
-                    onReplaceAsset={(newAsset, dur) => {
-                      setAssets(prev => [...prev, newAsset]);
-                      const updated = clips.map(c => c.id === sel.id
-                        ? { ...c, asset_id: newAsset.id, end_time: c.start_time + dur, effects: { ...(c.effects||{}), text: newAsset.metadata?.text, voiceId: newAsset.metadata?.voiceId } }
-                        : c);
-                      handleCommit(updated);
-                    }}
-                  />
-                );
-              })()}
-              <Timeline
-                clips={clips}
-                duration={Math.max(duration, clips.reduce((m, c) => Math.max(m, c.end_time), 0), 30)}
-                currentTime={currentTime}
-                onSeek={(t) => { setCurrentTime(t); if (videoRef.current) videoRef.current.currentTime = t; }}
-                assets={assets}
-                selectedClipId={selectedClipId}
-                onSelectClip={setSelectedClipId}
-                onLiveUpdate={setLiveClips}
-                onCommit={handleCommit}
-                onSplit={handleSplit}
+        {/* Centro: preview + controles + timeline */}
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 relative">
+          <PreviewPlayer
+            ref={previewPlayerRef}
+            asset={activeAsset}
+            videoRef={videoRef}
+            onTimeUpdate={setCurrentTime}
+            onDurationChange={(d) => setDuration(prev => Math.max(prev, d))}
+            isPlaying={isPlaying}
+            setIsPlaying={setIsPlaying}
+            clips={clips}
+            currentTime={currentTime}
+            assets={assets}
+          />
+
+          {(() => {
+            const sel = clips.find(c => c.id === selectedClipId);
+            if (!sel || sel.track !== "audio") return null;
+            const selAsset = assets.find(a => a.id === sel.asset_id) || null;
+            return (
+              <AudioInspector
+                clip={sel}
+                asset={selAsset}
+                projectId={projectId!}
+                onClose={() => setSelectedClipId(null)}
                 onDelete={handleDelete}
-                onUndo={handleUndo}
-                onRedo={handleRedo}
+                onUpdateClip={(next) => {
+                  const updated = clips.map(c => c.id === next.id ? next : c);
+                  handleCommit(updated);
+                }}
+                onReplaceAsset={(newAsset, dur) => {
+                  setAssets(prev => [...prev, newAsset]);
+                  const updated = clips.map(c => c.id === sel.id
+                    ? { ...c, asset_id: newAsset.id, end_time: c.start_time + dur, effects: { ...(c.effects||{}), text: newAsset.metadata?.text, voiceId: newAsset.metadata?.voiceId } }
+                    : c);
+                  handleCommit(updated);
+                }}
               />
-            </>
-          )}
-        </div>
+            );
+          })()}
 
-        <EditorSidebar
-          assets={assets}
-          onUpload={handleUpload}
-          onSelectAsset={setActiveAsset}
-          activeAssetId={activeAsset?.id}
-          pinnedAssetIds={pinnedAssetIds}
-          onTogglePin={handleTogglePin}
-        />
+          <Timeline
+            clips={clips}
+            duration={Math.max(duration, clips.reduce((m, c) => Math.max(m, c.end_time), 0), 30)}
+            currentTime={currentTime}
+            onSeek={(t) => { setCurrentTime(t); if (videoRef.current) videoRef.current.currentTime = t; }}
+            assets={assets}
+            selectedClipId={selectedClipId}
+            onSelectClip={setSelectedClipId}
+            onLiveUpdate={setLiveClips}
+            onCommit={handleCommit}
+            onSplit={handleSplit}
+            onDelete={handleDelete}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+          />
+        </div>
       </div>
+
+      <ImportDrawer
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        assets={assets}
+        onUpload={handleUpload}
+        onSelectAsset={(a) => { setActiveAsset(a); setImportOpen(false); }}
+        activeAssetId={activeAsset?.id}
+        pinnedAssetIds={pinnedAssetIds}
+        onTogglePin={handleTogglePin}
+        selectedVoiceId={selectedVoiceId}
+        onSelectVoice={handleSelectVoice}
+        projectId={projectId!}
+      />
     </div>
   );
 };
